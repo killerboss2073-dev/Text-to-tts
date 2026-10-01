@@ -1,0 +1,6 @@
+{
+  "name": "Lin Zaw TTS Pro",
+  "description": "Professional Burmese Text-to-Speech and Voiceover Studio with Edge TTS (Thiha, Nilar), Gemini AI script assistance, and audio effects.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
