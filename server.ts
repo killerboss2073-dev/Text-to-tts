@@ -13,6 +13,9 @@ const EDGE_VOICE_MAP: Record<string, { voice: string; defaultRate: number; defau
   thiha: { voice: "my-MM-ThihaNeural", defaultRate: 0, defaultPitch: 0 },       // သီဟ - Original Microsoft Edge Thiha Neural MALE
   nilar: { voice: "my-MM-NilarNeural", defaultRate: 0, defaultPitch: 0 },       // နီလာ - Original Microsoft Edge Nilar Neural FEMALE
   mgkyawthu: { voice: "it-IT-GiuseppeMultilingualNeural", defaultRate: 30, defaultPitch: 2 }, // မောင်ကျော်သူ (Giuseppe Fast Vibe ⚡ - Speed 1.3)
+  mgthuta: { voice: "fr-FR-RemyMultilingualNeural", defaultRate: 30, defaultPitch: 0 },       // မောင်သုတ (Remy Fast Reviewer ⚡ - Speed 1.3)
+  masumyatt: { voice: "en-US-AvaMultilingualNeural", defaultRate: 30, defaultPitch: 0 },      // မဆုမြတ် (Ava Fast Narrator ⚡ - Speed 1.3)
+  koaungkyaw: { voice: "en-US-BrianMultilingualNeural", defaultRate: 60, defaultPitch: 0 },   // ကိုအောင်ကျော် (Brian Hyper Epic ⚡ - Speed 1.6)
   saicsai: { voice: "my-MM-ThihaNeural", defaultRate: 6, defaultPitch: 2 },    // ကိုစိုင်းစိုင်း - MALE
   mafoofoo: { voice: "my-MM-NilarNeural", defaultRate: -3, defaultPitch: 4 },  // မဖူးဖူး - FEMALE
   koneye: { voice: "my-MM-ThihaNeural", defaultRate: -2, defaultPitch: -5 },   // ကိုနေတိုး - MALE
@@ -134,21 +137,21 @@ function generateSrtFromBoundaries(
       const nextItem = boundaries[i + 1];
       const isPunct = /[၊။,\.\?!]/.test(txt);
       const isConnector =
-        /(ပြီး|ပြီးတော့|ဒါပေမဲ့|ဒါကြောင့်|အခါ|တယ်|ဘူး|သည်|ပါ|လိုက်တယ်|တာ|မှာ|က|ကို|ရဲ့|လို့|ချိန်မှာပဲ|တဲ့အတွက်|အနေနဲ့|ဆုံးဖြတ်လိုက်တယ်|မေးလိုက်တယ်|ခေါ်လိုက်တယ်|ရတယ်|ပါဘူး|တယ်လို့|သွားတယ်|ဖြစ်လာတယ်|ဖြစ်လာမယ်)$/.test(
+        /(ပြီး|ပြီးတော့|ဒါပေမဲ့|ဒါကြောင့်|အခါ|တယ်|ဘူး|သည်|ပါ|လိုက်တယ်|တာ|မှာ|က|ကို|ရဲ့|လို့|ချိန်မှာပဲ|တဲ့အတွက်|အနေနဲ့|ဆုံးဖြတ်လိုက်တယ်|မေးလိုက်တယ်|ခေါ်လိုက်တယ်|ရတယ်|ပါဘူး|တယ်လို့|သွားတယ်|ဖြစ်လာတယ်|ဖြစ်လာမယ်|မဟုတ်တော့|ချစ်ပါ့မလား|နှင်ထုတ်လိုက်တယ်|မစဉ်းစားရသေးဘူး|အားကိုးရတော့မယ်|ကြည့်ဖို့|အောက်မှာနှိပ်ပါ|နှိပ်ပါ|နှိပ်ပြီး|သွားပါမယ်|ကောင်းပါသေးတယ်|ရှိနေကြပြီ|ရလာတဲ့အခါ|အကြောင်း|တွေးမိသွားတယ်|ခွဲပေးရမလဲဆိုတာ|ဆုံးဖြတ်ဖို့အတွက်|ဟန်ဆောင်ပြီး|ကောင်းရဲ့လားဆိုတာ|ရူးနေတာလား|တောင်းတာပါ။|ငွေချေးမလဲ|အင်္ကျီကို|ဝတ်လိုက်|စိတ်ဓာတ်မမာကျောပါဘူး|ကြည့်ကြတာပေါ့|နေရာလား|ဝင်သွားရအောင်|ဘာလုပ်နေတာလဲ|လာရောင်းတာလား|သွားပါ။|ရှာနေတာပါ|ပြောနေတာလား|မိဘတွေလား|လယ်သမားတွေပါ။|ခေါ်နေပါတယ်။|ရောက်နေတယ်။|ပြောနေကြတယ်ခင်ဗျ|ပြောတယ်|မဝင်နဲ့တဲ့|ဘာလဲ|တင်တဲ့ဟာလေ|ဖြစ်ရမယ်|လွှတ်လိုက်တာလဲ|ပွင့်လင်းလွန်းနေတာလဲ|ဘာအနံ့လဲ|လာတွေ့တာ|အရင်မပြောထားတာလဲ|မကိုင်ဘူး|ဘာတွေသယ်လာတာလဲ|သယ်လာတာလဲ|ထင်ကုန်တော့မယ်|သယ်လာတာ|ထားခဲ့လိုက်ပါ|သန့်ရှင်းရေးလုပ်ထားတာ|အဝင်ခံပါဦး|ခဏလေးပါ|အရမ်းညစ်ပတ်နေတယ်|စောင့်ဦး|ဝတ်ထား|ပေးလိုက်စမ်းပါ|ရေလေးသောက်ဦး|ဆေးထားတာ|ကွဲကုန်ပါဦးမယ်|လာတွေ့တာလဲ|တွေ့ပြီးပြီလေ|နေကောင်းပါတယ်|ပြန်ကြပါတော့|ခုမှ|ရောက်တာလေ|ရောက်လာတာ|ပြင်ဆင်မထားဘူး|မရှိဘူး|အိပ်မယ်|ကျေးလက်မဟုတ်ဘူး|အပူပေးစနစ်နဲ့|ဘယ်သူလျော်မှာလဲ|အိပ်ကြမယ်|ပြန်ကြလိမ့်မယ်|နေချင်တာလေ|နေပါစေ|ထမင်းလာကျွေးရမှာ|အဆင်မပြေဘူး|ပြန်ခိုင်းလိုက်|ထိခိုက်ကုန်မယ်|တိုင်ပင်စရာ|ရှိလို့|လာတာ|ပြိုကျသွားတယ်|အက်နေတယ်|ချေးမလို့|ဒါပေမဲ့|သုံးရမှာပဲ|မရှိဘူး|ချေးရမှာလား|လာရတာလဲ|သိတယ်|မချေးကြဘူး|ရှိတယ်|ရှင်အရူးလား|တောင်း|တောင်းဦးမလား|မဟုတ်ပါဘူး|စုပြီးပြီပဲ|မွေးနေ့လေ|ဘာပေးမလဲ|မပေးနဲ့တော့|အလုပ်လုပ်နေတယ်|ပြန်လာခဲ့လိုက်မယ်|အား|မရှိဘူးလို့ပြောထားတာကို|ပြောခဲ့တာပဲ|ကုန်သွားပြီလေ|ဝယ်လိုက်လို့|တကယ်လား|လွှဲပေးလိုက်မယ်|ပြောလိုက်တယ်နော်|အလုပ်အတွက်လေ|ဘာမှမဆိုင်ဘူး|ဝယ်နိုင်ပြီး|မချေးနိုင်ဘူးလား|တွက်မနေနဲ့တော့|သုံးတာပဲ|သွားတော့မယ်|မချစ်တော့ဘူး|မွေးလာတာ|ပညာသင်ပေးခဲ့တာ|လုပ်ရက်တယ်နော်|သွားကြမယ်|နေတာ|အဝေးကြီးပဲ|ရောက်သွားတော့)$/.test(
           txt
         );
       const isPause =
         nextItem &&
-        nextItem.offset - (item.offset + item.duration) > 1800000; // 180ms pause
+        nextItem.offset - (item.offset + item.duration) > 1500000; // 150ms pause
 
-      // Conditions to break cue for short, readable 1-line subtitle (စာတန်းထိုးတစ်ကြောင်း)
+      // Conditions to break cue for short, crisp single line (စာတန်းထိုးတစ်ကြောင်း: max 16-22 chars / 1 spoken phrase)
       const shouldBreak =
         isPunct ||
         isPause ||
-        currentGroup.length >= 3 ||
-        groupLen >= 28 ||
-        groupDurMs >= 2200 ||
-        (currentGroup.length >= 2 && (isConnector || groupLen >= 18));
+        currentGroup.length >= 2 ||
+        groupLen >= 20 ||
+        groupDurMs >= 1600 ||
+        (currentGroup.length >= 1 && (isPunct || isConnector || groupLen >= 14));
 
       if (shouldBreak || i === boundaries.length - 1) {
         if (groupText.trim()) {
@@ -177,17 +180,17 @@ function generateSrtFromBoundaries(
     for (let i = 0; i < rawParts.length; i++) {
       const part = rawParts[i];
       if (!part) continue;
-      // If part is still too long (>35 chars), break it into smaller sub-clauses
-      if (part.length > 35) {
+      // If part is still too long (>24 chars), break it into smaller sub-clauses
+      if (part.length > 24) {
         const words = part.split(/\s+/);
         let subGroup: string[] = [];
         for (const w of words) {
           subGroup.push(w);
           const subText = subGroup.join(" ");
-          if (subText.length >= 26 || subGroup.length >= 3) {
+          if (subText.length >= 18 || subGroup.length >= 2) {
             const startMs = curTime;
-            const endMs = startMs + Math.max(750, subText.length * 110);
-            curTime = endMs + 40;
+            const endMs = startMs + Math.max(650, subText.length * 105);
+            curTime = endMs + 35;
             singleLineCues.push({
               id: singleLineCues.length + 1,
               startMs,
@@ -202,8 +205,8 @@ function generateSrtFromBoundaries(
         if (subGroup.length > 0) {
           const subText = subGroup.join(" ");
           const startMs = curTime;
-          const endMs = startMs + Math.max(750, subText.length * 110);
-          curTime = endMs + 40;
+          const endMs = startMs + Math.max(650, subText.length * 105);
+          curTime = endMs + 35;
           singleLineCues.push({
             id: singleLineCues.length + 1,
             startMs,
@@ -215,8 +218,8 @@ function generateSrtFromBoundaries(
         }
       } else {
         const startMs = curTime;
-        const endMs = startMs + Math.max(750, part.length * 110);
-        curTime = endMs + 40;
+        const endMs = startMs + Math.max(650, part.length * 105);
+        curTime = endMs + 35;
         singleLineCues.push({
           id: singleLineCues.length + 1,
           startMs,
@@ -229,7 +232,7 @@ function generateSrtFromBoundaries(
     }
   }
 
-  // 2. Two Line Cues (စာတန်းထိုးနှစ်ကြောင်း: pairs 2 consecutive short single-line cues)
+  // 2. Two Line Cues (စာတန်းထိုးနှစ်ကြောင်း: ALWAYS strictly 2 balanced lines per cue)
   const twoLineCues: SubtitleCue[] = [];
   for (let i = 0; i < singleLineCues.length; i += 2) {
     const c1 = singleLineCues[i];
@@ -244,14 +247,41 @@ function generateSrtFromBoundaries(
         text: `${c1.text}\n${c2.text}`,
       });
     } else {
-      twoLineCues.push({
-        id: twoLineCues.length + 1,
-        startMs: c1.startMs,
-        endMs: c1.endMs,
-        startTime: c1.startTime,
-        endTime: c1.endTime,
-        text: c1.text,
-      });
+      // If single line remains, split into 2 lines if possible so 2-line mode ALWAYS has 2 lines
+      if (c1.text.length >= 14 && c1.text.includes(" ")) {
+        const mid = Math.floor(c1.text.length / 2);
+        const spIdx = c1.text.indexOf(" ", mid - 4);
+        if (spIdx !== -1 && spIdx < mid + 8) {
+          const l1 = c1.text.slice(0, spIdx).trim();
+          const l2 = c1.text.slice(spIdx).trim();
+          twoLineCues.push({
+            id: twoLineCues.length + 1,
+            startMs: c1.startMs,
+            endMs: c1.endMs,
+            startTime: c1.startTime,
+            endTime: c1.endTime,
+            text: `${l1}\n${l2}`,
+          });
+        } else {
+          twoLineCues.push({
+            id: twoLineCues.length + 1,
+            startMs: c1.startMs,
+            endMs: c1.endMs,
+            startTime: c1.startTime,
+            endTime: c1.endTime,
+            text: `${c1.text}\n`,
+          });
+        }
+      } else {
+        twoLineCues.push({
+          id: twoLineCues.length + 1,
+          startMs: c1.startMs,
+          endMs: c1.endMs,
+          startTime: c1.startTime,
+          endTime: c1.endTime,
+          text: `${c1.text}\n`,
+        });
+      }
     }
   }
 
@@ -535,6 +565,41 @@ Return only the formatted Burmese script text ready for TTS synthesis.`;
     } catch (error: any) {
       console.error("Gemini script generation error:", error?.message || error);
       res.status(500).json({ error: error.message || "Failed to generate script" });
+    }
+  });
+
+  // API Route: AI Language Translator using Gemini
+  app.post("/api/gemini/translate", async (req, res) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      const { text, sourceLang, targetLang } = req.body;
+      if (!text || !text.trim()) {
+        return res.status(400).json({ error: "Text is required for translation" });
+      }
+
+      if (!apiKey) {
+        return res.status(500).json({ error: "Gemini API Key is not configured." });
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      const systemInstruction = `You are a professional real-time translator specializing in Burmese, English, Chinese, Thai, Korean, Japanese, French, and Spanish.
+Translate the user's provided text from ${sourceLang || "Auto Detect"} to ${targetLang || "Burmese"}.
+Provide natural, grammatically correct, and fluent translation without any explanations, notes, or conversational intro/outro text.
+Return ONLY the raw translated text.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: text,
+        config: {
+          systemInstruction,
+          temperature: 0.2,
+        },
+      });
+
+      res.json({ translatedText: response.text ? response.text.trim() : "" });
+    } catch (error: any) {
+      console.error("Gemini translation error:", error?.message || error);
+      res.status(500).json({ error: error.message || "Failed to translate text" });
     }
   });
 

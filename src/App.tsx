@@ -30,7 +30,13 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
-  Subtitles
+  Subtitles,
+  X,
+  Clock,
+  Menu,
+  Globe,
+  ArrowRightLeft,
+  ArrowRight
 } from "lucide-react";
 
 interface SubtitleCue {
@@ -48,11 +54,11 @@ function formatSrtTimestamp(ms: number): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = Math.floor(totalSeconds % 60);
+  const mmm = String(milliseconds).padStart(3, "0");
 
   const hh = String(hours).padStart(2, "0");
   const mm = String(minutes).padStart(2, "0");
   const ss = String(seconds).padStart(2, "0");
-  const mmm = String(milliseconds).padStart(3, "0");
 
   return `${hh}:${mm}:${ss},${mmm}`;
 }
@@ -67,14 +73,19 @@ interface VoiceOption {
   edgeVoice: string;
   lang: string;
   defaultSpeed?: number;
+  defaultPitch?: number;
 }
 
 interface AudioHistoryItem {
   id: string;
   text: string;
   voiceName: string;
+  voiceSubtitle?: string;
+  speedBadge?: string;
+  pitchBadge?: string;
   createdAt: string;
-  blobUrl: string;
+  blobUrl?: string;
+  audioBase64?: string;
   format: "mp3";
   fileSize?: string;
   srt?: string;
@@ -87,8 +98,8 @@ interface AudioHistoryItem {
 }
 
 const VOICES: VoiceOption[] = [
-  { id: "thiha", name: "သီဟ (Thiha)", gender: "male", description: "ကျားသံ သဘာဝဆန်ပြီး တည်ငြိမ်သော အသံ", badge: "အဓိက", edgeVoice: "my-MM-ThihaNeural", lang: "my-MM" },
-  { id: "nilar", name: "နီလာ (Nilar)", gender: "female", description: "မသံ ချိုသာပြီး ရှင်းလင်းပြတ်သားသော အသံ", badge: "အဓိက", edgeVoice: "my-MM-NilarNeural", lang: "my-MM" },
+  { id: "thiha", name: "သီဟ (Thiha)", gender: "male", description: "ယောက်ျားလေး သဘာဝဆန်ပြီး တည်ငြိမ်သော အသံ", badge: "အဓိက", edgeVoice: "my-MM-ThihaNeural", lang: "my-MM", defaultSpeed: 0, defaultPitch: 0 },
+  { id: "nilar", name: "နီလာ (Nilar)", gender: "female", description: "မိန်းကလေး ချိုသာပြီး ရှင်းလင်းပြတ်သားသော အသံ", badge: "အဓိက", edgeVoice: "my-MM-NilarNeural", lang: "my-MM", defaultSpeed: 0, defaultPitch: 0 },
   { 
     id: "mgkyawthu", 
     name: "မောင်ကျော်သူ", 
@@ -98,14 +109,45 @@ const VOICES: VoiceOption[] = [
     badge: "⚡ Fast Vibe", 
     edgeVoice: "it-IT-GiuseppeMultilingualNeural", 
     lang: "it-IT (Multilingual)", 
-    defaultSpeed: 30 
+    defaultSpeed: 30,
+    defaultPitch: 10 
   },
-  { id: "saicsai", name: "ကိုစိုင်းစိုင်း", gender: "male", description: "လူငယ်ဆန်ဆန် ခပ်သွက်သွက် အသံ", edgeVoice: "my-MM-ThihaNeural", lang: "my-MM" },
-  { id: "mafoofoo", name: "မဖူးဖူး", gender: "female", description: "နူးညံ့သိမ်မွေ့သော မိန်းကလေးအသံ", edgeVoice: "my-MM-NilarNeural", lang: "my-MM" },
-  { id: "koneye", name: "ကိုနေတိုး", gender: "male", description: "ဇာတ်လမ်းနှင့် ရုပ်ရှင်ဇာတ်ညွှန်းများအတွက်", edgeVoice: "my-MM-ThihaNeural", lang: "my-MM" },
-  { id: "kqaung", name: "ကိုအောင်ရဲလင်း", gender: "male", description: "သတင်းဖတ်ရန် အထူးသင့်လျော်သော အသံ", edgeVoice: "my-MM-ThihaNeural", lang: "my-MM" },
-  { id: "komyint", name: "ကိုမြင့်မြတ်", gender: "male", description: "အားမာန်ပါသော ကြေငြာသံ", edgeVoice: "my-MM-ThihaNeural", lang: "my-MM" },
-  { id: "mawathsu", name: "မဝတ်မှုံရွှေရည်", gender: "female", description: "ဖတ်စာနှင့် ဝတ္ထုများအတွက်", edgeVoice: "my-MM-NilarNeural", lang: "my-MM" },
+  { 
+    id: "mgthuta", 
+    name: "မောင်သုတ", 
+    subtitle: "(Remy Fast Reviewer ⚡ - Speed 1.3)", 
+    gender: "male", 
+    description: "ဗဟုသုတနှင့် ထုတ်ကုန်များ သွက်လက်စွာ ရှင်းပြသံ", 
+    badge: "⚡ Fast Reviewer", 
+    edgeVoice: "fr-FR-RemyMultilingualNeural", 
+    lang: "fr-FR (Multilingual)", 
+    defaultSpeed: 30,
+    defaultPitch: 10 
+  },
+  { 
+    id: "masumyatt", 
+    name: "မဆုမြတ်", 
+    subtitle: "(Ava Fast Narrator ⚡ - Speed 1.3)", 
+    gender: "female", 
+    description: "သွက်လက်ကြည်လင်သော ဇာတ်လမ်းသုံးသပ်သံ (Speed 1.3)", 
+    badge: "⚡ Fast Narrator", 
+    edgeVoice: "en-US-AvaMultilingualNeural", 
+    lang: "en-US (Multilingual)", 
+    defaultSpeed: 30,
+    defaultPitch: 10 
+  },
+  { 
+    id: "koaungkyaw", 
+    name: "ကိုအောင်ကျော်", 
+    subtitle: "(Brian Hyper Epic ⚡ - Speed 1.6)", 
+    gender: "male", 
+    description: "စိတ်လှုပ်ရှားဖွယ် အမြန်ဇာတ်လမ်းပြောသံ (Speed 1.6)", 
+    badge: "⚡ Hyper Epic", 
+    edgeVoice: "en-US-BrianMultilingualNeural", 
+    lang: "en-US (Multilingual)", 
+    defaultSpeed: 60,
+    defaultPitch: 10 
+  },
 ];
 
 const TONE_CATEGORIES = [
@@ -118,13 +160,22 @@ const TONE_CATEGORIES = [
 ];
 
 const SAMPLE_TEXTS = [
-  "မင်္ဂလာပါခင်ဗျာ။ လင်းဇော် အသံထွက် စတူဒီယိုမှ ကြိုဆိုပါတယ်။ အသံဖိုင်များကို အရည်အသွေးမြင့် .mp3 ဖိုင်အဖြစ် အလွယ်တကူ ဒေါင်းလုဒ်ရယူနိုင်ပါပြီ။",
+  "မင်္ဂလာပါခင်ဗျာ။ လင်းလင်းဇော် မှ ကြိုဆိုပါတယ်။ အသံဖိုင်များကို အရည်အသွေးမြင့် .mp3 ဖိုင်အဖြစ် အလွယ်တကူ ဒေါင်းလုဒ်ရယူနိုင်ပါပြီ။",
   "မြန်မာနိုင်ငံ၏ သဘာဝအလှအပများနှင့် ရှေးဟောင်းယဉ်ကျေးမှု အမွေအနှစ်များကို လေ့လာနိုင်ရန် ဖိတ်ခေါ်အပ်ပါသည်။",
   "သတင်းထုတ်ပြန်ချက်။ ယနေ့ညနေပိုင်းတွင် ရန်ကုန်မြို့၌ အထူးဆွေးနွေးပွဲ ကျင်းပမည်ဖြစ်ပါသည်။",
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"studio" | "srt_tool" | "ai" | "history" | "settings">("studio");
+  const [activeTab, setActiveTab] = useState<"studio" | "settings">("studio");
+  const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
+  
+  // Translation State
+  const [translateSourceText, setTranslateSourceText] = useState<string>("");
+  const [translateResultText, setTranslateResultText] = useState<string>("");
+  const [sourceLang, setSourceLang] = useState<string>("Auto Detect");
+  const [targetLang, setTargetLang] = useState<string>("Burmese");
+  const [isTranslating, setIsTranslating] = useState<boolean>(false);
+
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>(VOICES[0]);
   const [selectedTone, setSelectedTone] = useState<string>("normal");
   const [text, setText] = useState<string>(SAMPLE_TEXTS[0]);
@@ -339,16 +390,90 @@ export default function App() {
   const [aiCategory, setAiCategory] = useState<string>("သတင်း");
   const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
 
+  // Custom File Name state for saving downloads (matching user request & IMG_0113.jpeg)
+  const [customFileName, setCustomFileName] = useState<string>("My_Voice_Record");
+  const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
+  const [durationSec, setDurationSec] = useState<number>(0);
+
+  // History Modal State (IMG_0114 & IMG_0115)
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
+  const [historyPlayingId, setHistoryPlayingId] = useState<string | null>(null);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const historyAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const DEFAULT_INITIAL_HISTORY: AudioHistoryItem[] = [
+    {
+      id: "hist-1",
+      text: "မြန်မာနိုင်ငံ၏ သဘာဝအလှအပများနှင့် ရှေးဟောင်းယဉ်ကျေးမှု အမွေအနှစ်များကို လေ့လာနို...",
+      voiceName: "မောင်သုတ",
+      voiceSubtitle: "(Remy Fast Reviewer 📱 - Speed 1.3)",
+      speedBadge: "1.30x",
+      pitchBadge: "+10Hz",
+      createdAt: "23:04",
+      format: "mp3",
+      fileSize: "42.5 KB",
+      singleLineSrt: `1\n00:00:00,000 --> 00:00:01,800\nမြန်မာနိုင်ငံ၏ သဘာဝအလှအပများနှင့်\n\n2\n00:00:01,800 --> 00:00:04,200\nရှေးဟောင်းယဉ်ကျေးမှု အမွေအနှစ်များကို လေ့လာနိုင်ရန် ဖိတ်ခေါ်အပ်ပါသည်။`,
+    },
+    {
+      id: "hist-2",
+      text: "အထောက်အထားတွေ ငါတို့ရပြီ ထောက်ပံ့ကြေး အလွဲသုံးစားမှု ဥပဒေကို ငါပြန်ကြည့်ပြီး...",
+      voiceName: "မောင်ကျော်သူ",
+      voiceSubtitle: "(Giuseppe Fast Vibe ⚡ - Speed 1.3)",
+      speedBadge: "1.30x",
+      pitchBadge: "+10Hz",
+      createdAt: "19:19",
+      format: "mp3",
+      fileSize: "56.2 KB",
+      singleLineSrt: `1\n00:00:00,000 --> 00:00:02,100\nအထောက်အထားတွေ ငါတို့ရပြီ\n\n2\n00:00:02,100 --> 00:00:04,800\nထောက်ပံ့ကြေး အလွဲသုံးစားမှု ဥပဒေကို ငါပြန်ကြည့်ပြီး...`,
+    },
+    {
+      id: "hist-3",
+      text: "လူငယ်ဟာ ၁၀ နှစ်အရွယ် သူ့ကြက်မကြီး ဥ စတင်ဥတာကို တွေ့လိုက်ရလို့ မှင်သက်သွားခဲ့ပါ...",
+      voiceName: "မောင်ကျော်သူ",
+      voiceSubtitle: "(Giuseppe Fast Vibe ⚡ - Speed 1.3)",
+      speedBadge: "1.30x",
+      pitchBadge: "+10Hz",
+      createdAt: "19:18",
+      format: "mp3",
+      fileSize: "48.8 KB",
+      singleLineSrt: `1\n00:00:00,000 --> 00:00:02,400\nလူငယ်ဟာ ၁၀ နှစ်အရွယ် သူ့ကြက်မကြီး ဥ စတင်ဥတာကို တွေ့လိုက်ရလို့\n\n2\n00:00:02,400 --> 00:00:05,100\nမှင်သက်သွားခဲ့ပါ...`,
+    }
+  ];
 
   useEffect(() => {
     const saved = localStorage.getItem("lin_zaw_tts_history");
     if (saved) {
       try {
-        setHistory(JSON.parse(saved));
+        const parsed: AudioHistoryItem[] = JSON.parse(saved);
+        if (parsed && parsed.length > 0) {
+          const restored = parsed.map(item => {
+            if (item.audioBase64 && !item.blobUrl) {
+              try {
+                const byteCharacters = atob(item.audioBase64);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                  byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: "audio/mpeg" });
+                return { ...item, blobUrl: URL.createObjectURL(blob) };
+              } catch {
+                return item;
+              }
+            }
+            return item;
+          });
+          setHistory(restored);
+        } else {
+          setHistory(DEFAULT_INITIAL_HISTORY);
+        }
       } catch (e) {
         console.error("Failed to load history", e);
+        setHistory(DEFAULT_INITIAL_HISTORY);
       }
+    } else {
+      setHistory(DEFAULT_INITIAL_HISTORY);
     }
   }, []);
 
@@ -412,14 +537,22 @@ export default function App() {
       setActiveCueId(null);
 
       const sizeKb = (finalBlob.size / 1024).toFixed(1) + " KB";
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const speedStr = ((100 + speed) / 100).toFixed(2) + "x";
+      const pitchStr = (pitch >= 0 ? `+${pitch}` : `${pitch}`) + "Hz";
 
-      // Add to history
+      // Add to history matching IMG_0115.jpeg
       const newItem: AudioHistoryItem = {
         id: Date.now().toString(),
-        text: text.length > 50 ? text.substring(0, 50) + "..." : text,
+        text: text,
         voiceName: selectedVoice.name,
-        createdAt: new Date().toLocaleTimeString(),
+        voiceSubtitle: selectedVoice.subtitle || (selectedVoice.badge ? `(${selectedVoice.badge})` : ""),
+        speedBadge: speedStr,
+        pitchBadge: pitchStr,
+        createdAt: timeStr,
         blobUrl: objectUrl,
+        audioBase64: data.audioBase64,
         format: "mp3",
         fileSize: sizeKb,
         srt: sSrt,
@@ -456,29 +589,182 @@ export default function App() {
     }
   };
 
-  // Pure MP3 File Downloader
-  const handleDownloadFile = (blobUrlToDownload?: string, customName?: string) => {
+  // History Audio Player & Toggle
+  const handleTogglePlayHistoryItem = async (item: AudioHistoryItem) => {
+    if (historyPlayingId === item.id) {
+      if (historyAudioRef.current) {
+        if (!historyAudioRef.current.paused) {
+          historyAudioRef.current.pause();
+          setHistoryPlayingId(null);
+        } else {
+          historyAudioRef.current.play();
+        }
+      }
+      return;
+    }
+
+    let playUrl = item.blobUrl;
+    if (!playUrl && item.audioBase64) {
+      try {
+        const byteCharacters = atob(item.audioBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: "audio/mpeg" });
+        playUrl = URL.createObjectURL(blob);
+        item.blobUrl = playUrl;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // If still no playUrl (e.g. sample items from UI), dynamically generate
+    if (!playUrl) {
+      try {
+        setStatusMessage("🔊 မှတ်တမ်းအသံဖိုင် ဖွင့်နေပါသည်...");
+        const matchedVoice = VOICES.find(v => item.voiceName.includes(v.name) || v.name.includes(item.voiceName)) || VOICES[0];
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: item.text,
+            voice: matchedVoice.id,
+            returnJson: true
+          })
+        });
+        const data = await res.json();
+        if (data.audioBase64) {
+          const byteCharacters = atob(data.audioBase64);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: "audio/mpeg" });
+          playUrl = URL.createObjectURL(blob);
+          item.blobUrl = playUrl;
+          item.audioBase64 = data.audioBase64;
+        }
+        setStatusMessage(null);
+      } catch (err) {
+        console.error(err);
+        setStatusMessage(null);
+      }
+    }
+
+    if (playUrl && historyAudioRef.current) {
+      historyAudioRef.current.src = playUrl;
+      historyAudioRef.current.load();
+      historyAudioRef.current.play().then(() => {
+        setHistoryPlayingId(item.id);
+      }).catch(err => {
+        console.warn("History play failed:", err);
+      });
+    }
+  };
+
+  // Download MP3 from History
+  const handleDownloadHistoryMp3 = async (item: AudioHistoryItem) => {
+    let downloadUrl = item.blobUrl;
+    if (!downloadUrl && item.audioBase64) {
+      try {
+        const byteCharacters = atob(item.audioBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: "audio/mpeg" });
+        downloadUrl = URL.createObjectURL(blob);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    if (!downloadUrl) {
+      try {
+        setStatusMessage("⬇️ ဒေါင်းလုဒ်လုပ်ရန် အသံဖိုင် ပြင်ဆင်နေပါသည်...");
+        const matchedVoice = VOICES.find(v => item.voiceName.includes(v.name) || v.name.includes(item.voiceName)) || VOICES[0];
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: item.text,
+            voice: matchedVoice.id,
+            returnJson: true
+          })
+        });
+        const data = await res.json();
+        if (data.audioBase64) {
+          const byteCharacters = atob(data.audioBase64);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: "audio/mpeg" });
+          downloadUrl = URL.createObjectURL(blob);
+          item.blobUrl = downloadUrl;
+          item.audioBase64 = data.audioBase64;
+        }
+        setStatusMessage(null);
+      } catch (err) {
+        console.error(err);
+        setStatusMessage(null);
+      }
+    }
+
+    if (downloadUrl) {
+      const safeName = (item.voiceName + "_" + item.id).replace(/[^\w\u1000-\u109F]/g, "_");
+      handleDownloadFile(downloadUrl, safeName);
+    }
+  };
+
+  // Download SRT from History
+  const handleDownloadHistorySrt = (item: AudioHistoryItem) => {
+    const content = item.singleLineSrt || item.twoLineSrt || item.srt;
+    if (!content) {
+      alert("ဤမှတ်တမ်းအတွက် SRT စာတန်းထိုး မရှိသေးပါ။");
+      return;
+    }
+    const safeName = (item.voiceName + "_" + item.id).replace(/[^\w\u1000-\u109F]/g, "_");
+    handleDownloadSrt("single", content, safeName);
+  };
+
+  // Pure MP3 File Downloader (uses user-defined custom filename)
+  const handleDownloadFile = (blobUrlToDownload?: string, customNameOverride?: string) => {
     const url = blobUrlToDownload || currentBlobUrl;
-    if (!url) return;
+    if (!url) {
+      alert("ဒေါင်းလုဒ်လုပ်ရန် အသံဖိုင် မရှိသေးပါ။ ဦးစွာ အသံဖိုင်ထုတ်လုပ်ပေးပါ။");
+      return;
+    }
+
+    const cleanBase = (customNameOverride || customFileName || "My_Voice_Record")
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .replace(/\.mp3$/i, "");
+    const finalFilename = `${cleanBase || "My_Voice_Record"}.mp3`;
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = customName || `lin_zaw_speech_${Date.now()}.mp3`;
+    a.download = finalFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
 
-    setDownloadSuccessToast("အသံဖိုင် (.mp3) ကို အောင်မြင်စွာ ဒေါင်းလုဒ်ရယူပြီးပါပြီ။");
+    setDownloadSuccessToast(`"${finalFilename}" အသံဖိုင်ကို အောင်မြင်စွာ ဒေါင်းလုဒ်ရယူပြီးပါပြီ။`);
     setTimeout(() => {
       setDownloadSuccessToast(null);
-    }, 3000);
+    }, 3500);
   };
 
-  // Pure .srt Subtitle File Downloader (guarantees strictly .srt file and never .srt.txt)
+  // Pure .srt Subtitle File Downloader (uses user-defined custom filename + guaranteed .srt extension)
   const handleDownloadSrt = (
     modeOverride?: "single" | "two",
     customContent?: string,
-    customFilename?: string
+    customFilenameOverride?: string
   ) => {
     const targetMode = modeOverride || subtitleMode;
     const content =
@@ -490,13 +776,18 @@ export default function App() {
       return;
     }
 
+    const cleanBase = (customFilenameOverride || customFileName || "My_Voice_Record")
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .replace(/\.srt$/i, "");
+    const modeLabel = targetMode === "two" ? "two_lines" : "single_line";
+    const fname = `${cleanBase || "My_Voice_Record"}_${modeLabel}.srt`;
+
     // Explicitly set MIME type to application/x-subrip to guarantee .srt file extension
     const blob = new Blob([content], { type: "application/x-subrip;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    const modeLabel = targetMode === "two" ? "two_lines" : "single_line";
-    const fname = customFilename || `lin_zaw_subtitles_${modeLabel}_${Date.now()}.srt`;
     a.setAttribute("download", fname);
     document.body.appendChild(a);
     a.click();
@@ -562,7 +853,7 @@ export default function App() {
           if (timeLineIdx !== -1) {
             const timeMatch = lines[timeLineIdx].match(/(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})/);
             if (timeMatch) {
-              const textLines = lines.slice(timeLineIdx + 1).join("\n").trim();
+              const textContent = lines.slice(timeLineIdx + 1).join("\n").trim();
               const parseMs = (tStr: string) => {
                 const cleaned = tStr.replace(".", ",");
                 const [h, m, sMs] = cleaned.split(":");
@@ -576,22 +867,73 @@ export default function App() {
               };
               const sMs = parseMs(timeMatch[1]);
               const eMs = parseMs(timeMatch[2]);
-              if (textLines) {
-                singleCues.push({
-                  id: singleCues.length + 1,
-                  startMs: sMs,
-                  endMs: eMs,
-                  startTime: formatSrtTimestamp(sMs),
-                  endTime: formatSrtTimestamp(eMs),
-                  text: textLines,
-                });
+              const subLines = textContent.split(/\r?\n/).map(s => s.trim()).filter(s => s.length > 0);
+
+              if (subLines.length >= 2) {
+                const durPerLine = (eMs - sMs) / subLines.length;
+                for (let li = 0; li < subLines.length; li++) {
+                  const lineStart = Math.round(sMs + li * durPerLine);
+                  const lineEnd = Math.round(sMs + (li + 1) * durPerLine - 20);
+                  singleCues.push({
+                    id: singleCues.length + 1,
+                    startMs: lineStart,
+                    endMs: lineEnd,
+                    startTime: formatSrtTimestamp(lineStart),
+                    endTime: formatSrtTimestamp(lineEnd),
+                    text: subLines[li],
+                  });
+                }
+              } else if (textContent) {
+                if (textContent.length > 24 && textContent.includes(" ")) {
+                  const mid = Math.floor(textContent.length / 2);
+                  const spIdx = textContent.indexOf(" ", mid - 4);
+                  if (spIdx !== -1 && spIdx < mid + 8) {
+                    const l1 = textContent.slice(0, spIdx).trim();
+                    const l2 = textContent.slice(spIdx).trim();
+                    const halfDur = Math.round((eMs - sMs) / 2);
+                    singleCues.push({
+                      id: singleCues.length + 1,
+                      startMs: sMs,
+                      endMs: sMs + halfDur - 20,
+                      startTime: formatSrtTimestamp(sMs),
+                      endTime: formatSrtTimestamp(sMs + halfDur - 20),
+                      text: l1,
+                    });
+                    singleCues.push({
+                      id: singleCues.length + 1,
+                      startMs: sMs + halfDur,
+                      endMs: eMs,
+                      startTime: formatSrtTimestamp(sMs + halfDur),
+                      endTime: formatSrtTimestamp(eMs),
+                      text: l2,
+                    });
+                  } else {
+                    singleCues.push({
+                      id: singleCues.length + 1,
+                      startMs: sMs,
+                      endMs: eMs,
+                      startTime: formatSrtTimestamp(sMs),
+                      endTime: formatSrtTimestamp(eMs),
+                      text: textContent,
+                    });
+                  }
+                } else {
+                  singleCues.push({
+                    id: singleCues.length + 1,
+                    startMs: sMs,
+                    endMs: eMs,
+                    startTime: formatSrtTimestamp(sMs),
+                    endTime: formatSrtTimestamp(eMs),
+                    text: textContent,
+                  });
+                }
               }
             }
           }
         }
       }
     } else {
-      // Break input into short clauses (15-32 characters or split on punctuation/connectors)
+      // Break input into short clauses (14-22 characters or split on punctuation/connectors)
       const rawLines = srtToolInput
         .split(/\r?\n/)
         .map((l) => l.trim())
@@ -607,7 +949,7 @@ export default function App() {
             atomicPhrases[atomicPhrases.length - 1] += part;
             continue;
           }
-          if (part.length <= 32) {
+          if (part.length <= 22) {
             atomicPhrases.push(part);
           } else {
             // Split long phrase by words / connectors
@@ -616,7 +958,7 @@ export default function App() {
             for (const w of words) {
               currentWords.push(w);
               const curText = currentWords.join(" ");
-              if (curText.length >= 24 || currentWords.length >= 3) {
+              if (curText.length >= 18 || currentWords.length >= 2) {
                 atomicPhrases.push(curText);
                 currentWords = [];
               }
@@ -635,10 +977,10 @@ export default function App() {
       for (let i = 0; i < atomicPhrases.length; i++) {
         const l = atomicPhrases[i];
         const lineFrac = l.length / Math.max(1, totalChars);
-        const lineDur = Math.max(700, Math.round(availableMs * lineFrac));
+        const lineDur = Math.max(650, Math.round(availableMs * lineFrac));
         const sMs = curMs;
-        const eMs = Math.min(targetDurMs, sMs + lineDur - 40);
-        curMs = eMs + 35;
+        const eMs = Math.min(targetDurMs, sMs + lineDur - 35);
+        curMs = eMs + 30;
 
         singleCues.push({
           id: singleCues.length + 1,
@@ -665,14 +1007,40 @@ export default function App() {
           text: `${c1.text}\n${c2.text}`,
         });
       } else {
-        twoCues.push({
-          id: twoCues.length + 1,
-          startMs: c1.startMs,
-          endMs: c1.endMs,
-          startTime: c1.startTime,
-          endTime: c1.endTime,
-          text: c1.text,
-        });
+        if (c1.text.length >= 14 && c1.text.includes(" ")) {
+          const mid = Math.floor(c1.text.length / 2);
+          const spIdx = c1.text.indexOf(" ", mid - 4);
+          if (spIdx !== -1 && spIdx < mid + 8) {
+            const l1 = c1.text.slice(0, spIdx).trim();
+            const l2 = c1.text.slice(spIdx).trim();
+            twoCues.push({
+              id: twoCues.length + 1,
+              startMs: c1.startMs,
+              endMs: c1.endMs,
+              startTime: c1.startTime,
+              endTime: c1.endTime,
+              text: `${l1}\n${l2}`,
+            });
+          } else {
+            twoCues.push({
+              id: twoCues.length + 1,
+              startMs: c1.startMs,
+              endMs: c1.endMs,
+              startTime: c1.startTime,
+              endTime: c1.endTime,
+              text: `${c1.text}\n`,
+            });
+          }
+        } else {
+          twoCues.push({
+            id: twoCues.length + 1,
+            startMs: c1.startMs,
+            endMs: c1.endMs,
+            startTime: c1.startTime,
+            endTime: c1.endTime,
+            text: `${c1.text}\n`,
+          });
+        }
       }
     }
 
@@ -741,6 +1109,50 @@ export default function App() {
     }
   };
 
+  const handleTranslate = async () => {
+    if (!translateSourceText.trim()) return;
+    setIsTranslating(true);
+    try {
+      const res = await fetch("/api/gemini/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: translateSourceText,
+          sourceLang,
+          targetLang,
+        }),
+      });
+      const data = await res.json();
+      if (data.translatedText) {
+        setTranslateResultText(data.translatedText);
+      } else {
+        alert("ဘာသာပြန်ဆို၍ မရပါ။ စာသားကို ပြန်လည်စစ်ဆေးပါ။");
+      }
+    } catch (e: any) {
+      alert("Translation Error: " + e.message);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const handleSendTranslateToStudio = () => {
+    if (!translateResultText.trim()) return;
+    setText(translateResultText);
+    setDownloadSuccessToast("အသံထွက်စတူဒီယိုသို့ စာသား ပို့ပြီးပါပြီ။");
+    setTimeout(() => setDownloadSuccessToast(null), 3500);
+    setActiveTab("studio");
+  };
+
+  const handleSwapLanguages = () => {
+    const tempSource = sourceLang === "Auto Detect" ? "English" : sourceLang;
+    setSourceLang(targetLang);
+    setTargetLang(tempSource);
+    if (translateResultText) {
+      setTranslateSourceText(translateResultText);
+      setTranslateResultText("");
+    }
+  };
+
   const insertEmotion = (tag: string) => {
     setText((prev) => prev + " " + tag + " ");
   };
@@ -748,64 +1160,80 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-pink-600 selection:text-white">
       {/* Top Navigation Bar */}
-      <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-50 px-4 sm:px-6 py-3.5 flex items-center justify-between">
+        {/* Left Side: Hamburger Drawer Button & Title: လင်းလင်းဇော် */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-violet-600 flex items-center justify-center shadow-lg shadow-pink-500/20">
-            <Mic className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-              လင်းဇော် အသံထွက် စတူဒီယို
-              <span className="text-xs px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-400 font-medium border border-pink-500/30">TTS Studio Pro</span>
-            </h1>
-            <p className="text-xs text-slate-400">Professional Burmese Text-to-Speech & Audio Downloader (.mp3)</p>
+          <button
+            type="button"
+            onClick={() => setIsDrawerOpen(true)}
+            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 hover:text-white transition-all cursor-pointer border border-slate-700/60 active:scale-95"
+            title="Open Drawer Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
+          <h1 className="text-xl sm:text-2xl font-black tracking-wide text-white select-none">
+            လင်းလင်းဇော်
+          </h1>
+        </div>
+      </header>
+
+      {/* Left Side Drawer Menu Overlay */}
+      {isDrawerOpen && (
+        <div className="fixed inset-0 z-[9999] flex">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm transition-opacity animate-fadeIn"
+            onClick={() => setIsDrawerOpen(false)}
+          />
+
+          {/* Drawer Panel */}
+          <div className="relative w-80 max-w-[85vw] bg-[#0b1220] border-r border-slate-800/90 h-full flex flex-col z-10 shadow-2xl p-5 space-y-6 animate-slideInLeft">
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800/80">
+              <div>
+                <h2 className="text-xl font-black text-white tracking-wide">လင်းလင်းဇော်</h2>
+                <p className="text-[11px] text-slate-400">High Fidelity Burmese Speech Studio</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDrawerOpen(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Menu Items */}
+            <div className="space-y-2.5 flex-1 overflow-y-auto pr-1">
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-2">Main Navigation</p>
+              
+              {/* Option 1: Text to Speech (Main Option) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDrawerOpen(false);
+                }}
+                className="w-full p-3.5 rounded-2xl flex items-center gap-3.5 transition-all text-sm font-bold cursor-pointer bg-gradient-to-r from-pink-600 to-violet-600 text-white shadow-lg shadow-pink-600/25 ring-1 ring-pink-400/30"
+              >
+                <div className="w-8 h-8 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center shrink-0">
+                  <Mic className="w-4.5 h-4.5" />
+                </div>
+                <div className="text-left flex-1">
+                  <div className="text-sm font-bold text-white">Text to Speech</div>
+                  <div className="text-[11px] text-pink-200 font-normal">အသံထွက်စတူဒီယို (Main Studio)</div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-white/70" />
+              </button>
+            </div>
+
+            {/* Drawer Footer */}
+            <div className="pt-4 border-t border-slate-800/80 text-[11px] text-slate-500 text-center">
+              <span>လင်းလင်းဇော် TTS Pro v2.5</span>
+            </div>
           </div>
         </div>
-
-        {/* Nav Tabs */}
-        <nav className="hidden md:flex items-center gap-1 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800">
-          <button 
-            onClick={() => setActiveTab("studio")}
-            className={`px-3.5 py-2 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "studio" ? "bg-gradient-to-r from-pink-600 to-violet-600 text-white shadow-md shadow-pink-600/20 font-bold" : "text-slate-400 hover:text-white hover:bg-slate-800/50"}`}
-          >
-            <Mic className="w-3.5 h-3.5" />
-            အသံထွက်စတူဒီယို
-          </button>
-          <button 
-            onClick={() => {
-              setActiveTab("srt_tool");
-              if (!srtToolSingleResult) {
-                handleProcessSrtTool();
-              }
-            }}
-            className={`px-3.5 py-2 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "srt_tool" ? "bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/25 font-bold" : "text-amber-300 hover:text-white hover:bg-slate-800/50"}`}
-          >
-            <Subtitles className="w-3.5 h-3.5 text-amber-400" />
-            SRT တည်းဖြတ်/ချိန်ညှိရန် (၂:၅၃)
-          </button>
-          <button 
-            onClick={() => setActiveTab("ai")}
-            className={`px-3.5 py-2 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "ai" ? "bg-gradient-to-r from-pink-600 to-violet-600 text-white shadow-md shadow-pink-600/20 font-bold" : "text-slate-400 hover:text-white hover:bg-slate-800/50"}`}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-pink-400" />
-            Gemini AI စာမူရေးရန်
-          </button>
-          <button 
-            onClick={() => setActiveTab("history")}
-            className={`px-3.5 py-2 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "history" ? "bg-gradient-to-r from-pink-600 to-violet-600 text-white shadow-md shadow-pink-600/20 font-bold" : "text-slate-400 hover:text-white hover:bg-slate-800/50"}`}
-          >
-            <History className="w-3.5 h-3.5" />
-            မှတ်တမ်း ({history.length})
-          </button>
-          <button 
-            onClick={() => setActiveTab("settings")}
-            className={`px-3.5 py-2 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "settings" ? "bg-gradient-to-r from-pink-600 to-violet-600 text-white shadow-md shadow-pink-600/20 font-bold" : "text-slate-400 hover:text-white hover:bg-slate-800/50"}`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            ဆက်တင်များ
-          </button>
-        </nav>
-      </header>
+      )}
 
       {/* Main Content Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
@@ -871,33 +1299,6 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-
-                {/* Emotion / Expression Quick Tags */}
-                <div className="space-y-2 pt-1">
-                  <span className="text-xs text-slate-400 flex items-center gap-1.5">
-                    <Smile className="w-3.5 h-3.5 text-pink-400" />
-                    ခံစားချက်နှင့် စည်းဝါး အသံထွက် တဂ်များ ထည့်သွင်းရန်:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { label: "😄 ရယ်မောပျော်ရွှင်", tag: "(စိတ်လှုပ်ရှား 😄)" },
-                      { label: "😌 အေးဆေးတည်ငြိမ်", tag: "(တည်ငြိမ် 😌)" },
-                      { label: "💼 သတင်းကြေငြာ", tag: "(သတင်း 💼)" },
-                      { label: "📖 ဇာတ်ကြောင်းပြော", tag: "(ဇာတ်ကြောင်း 📖)" },
-                      { label: "🤨 လေးနက်ခိုင်မာ", tag: "(လေးနက် 🤨)" },
-                      { label: "⏸️ ခေတ္တရပ်နား", tag: "။ ... " },
-                    ].map((emo, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => insertEmotion(emo.tag)}
-                        className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-300 hover:text-pink-300 hover:border-pink-500/40 transition-colors cursor-pointer"
-                      >
-                        {emo.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               {/* Voice Actor Selector */}
@@ -905,7 +1306,7 @@ export default function App() {
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                     <Mic className="w-4 h-4 text-pink-500" />
-                    မြန်မာ အသံရှင်များ ရွေးချယ်ပါ (Burmese Voices)
+                    မြန်မာ အသံရှင်များ (Burmese Voices)
                   </h2>
                   <span className="text-xs text-pink-400 font-medium">
                     {VOICES.length} သံစုံပါဝင်
@@ -920,9 +1321,8 @@ export default function App() {
                         key={v.id}
                         onClick={() => {
                           setSelectedVoice(v);
-                          if (v.defaultSpeed !== undefined) {
-                            setSpeed(v.defaultSpeed);
-                          }
+                          setSpeed(v.defaultSpeed !== undefined ? v.defaultSpeed : 0);
+                          setPitch(v.defaultPitch !== undefined ? v.defaultPitch : 0);
                         }}
                         className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${
                           isSelected
@@ -952,7 +1352,7 @@ export default function App() {
                         </div>
 
                         <div className="mt-2.5 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500">
-                          <span>{v.gender === "male" ? "👨 ကျားသံ" : "👩 မသံ"}</span>
+                          <span>{v.gender === "male" ? "👨 ယောက်ျားလေး" : "👩 မိန်းကလေး"}</span>
                           <span className="text-emerald-400 font-mono text-[9px] truncate max-w-[100px]">{v.lang}</span>
                         </div>
                       </div>
@@ -1207,360 +1607,87 @@ export default function App() {
                     />
                   </div>
 
+                  {/* Filename Input: Audio ဖွင့်စက်အောက်မှာဘဲ နာမည်ဖိုင်ပြင်မည် (အသံဖိုင်ထွက်လာမှသာ ပြမည်) */}
+                  {currentBlobUrl && (
+                    <div className="bg-[#0e1626] border border-[#1f2d47] rounded-2xl p-3.5 space-y-2 text-left shadow-md transition-all animate-fadeIn">
+                      <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                        <span>သိမ်းဆည်းမည့် ဖိုင်အမည် (စိတ်ကြိုက်ပြင်မည်)</span>
+                        <span className="text-[11px] text-pink-400 font-mono">.mp3 & .srt</span>
+                      </label>
+                      <div className="flex items-center rounded-xl bg-slate-950 border border-slate-800 overflow-hidden focus-within:border-pink-500/80 focus-within:ring-1 focus-within:ring-pink-500/30 transition-all">
+                        <input
+                          type="text"
+                          value={customFileName}
+                          onChange={(e) => setCustomFileName(e.target.value)}
+                          placeholder="My_Voice_Record"
+                          className="flex-1 bg-transparent px-3.5 py-2.5 text-xs font-semibold text-white placeholder:text-slate-500 outline-none"
+                        />
+                        <div className="px-3.5 py-2.5 bg-slate-900 border-l border-slate-800 text-[11px] font-mono font-bold text-slate-400 select-none">
+                          .mp3
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Playback & Direct Download Controls */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={togglePlay}
-                      className="py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                    >
-                      {isPlaying ? <Pause className="w-4 h-4 text-pink-400" /> : <Play className="w-4 h-4" />}
-                      {isPlaying ? "ရပ်မည် (Pause)" : "နားဆင်မည်"}
-                    </button>
-                    
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadFile()}
-                      disabled={!currentBlobUrl}
-                      className="py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-lg shadow-emerald-600/20"
-                    >
-                      <Download className="w-4 h-4" />
-                      ဒေါင်းလုဒ် (.MP3)
-                    </button>
-                  </div>
-
-                  {/* Exact Synchronized SRT Subtitles Panel (Single Line & Two Lines) */}
-                  {(currentSingleLineSrt || currentTwoLineSrt) && (
-                    <div className="bg-[#0e1626] border border-[#1f2d47] rounded-2xl p-4 space-y-3.5 shadow-xl">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Subtitles className="w-4 h-4 text-amber-400" />
-                          <span className="text-xs font-bold text-white">
-                            SRT စာတန်းထိုးစနစ် (.SRT Subtitles)
-                          </span>
-                        </div>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 font-mono font-bold">
-                          .SRT Pure File
-                        </span>
-                      </div>
-
-                      {/* Mode Switcher: စာတန်းထိုး တစ်ကြောင်း vs စာတန်းထိုး နှစ်ကြောင်း */}
-                      <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-950/90 rounded-xl border border-slate-800/90">
-                        <button
-                          type="button"
-                          onClick={() => setSubtitleMode("single")}
-                          className={`py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                            subtitleMode === "single"
-                              ? "bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md"
-                              : "text-slate-400 hover:text-white"
-                          }`}
-                        >
-                          <span>1️⃣ စာတန်းထိုး တစ်ကြောင်း</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSubtitleMode("two")}
-                          className={`py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                            subtitleMode === "two"
-                              ? "bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md"
-                              : "text-slate-400 hover:text-white"
-                          }`}
-                        >
-                          <span>2️⃣ စာတန်းထိုး နှစ်ကြောင်း</span>
-                        </button>
-                      </div>
-
-                      {/* Action buttons: Download Single Line, Download Two Lines, Copy */}
-                      <div className="grid grid-cols-3 gap-1.5 pt-0.5">
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadSrt("single")}
-                          className={`py-2 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer shadow ${
-                            subtitleMode === "single"
-                              ? "bg-amber-500 hover:bg-amber-400 text-slate-950 ring-1 ring-amber-400"
-                              : "bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30"
-                          }`}
-                          title="စာတန်းထိုး တစ်ကြောင်း .srt ဖိုင် ဒေါင်းလုဒ်လုပ်မည်"
-                        >
-                          <Download className="w-3.5 h-3.5 shrink-0" />
-                          <span>.SRT တစ်ကြောင်း</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadSrt("two")}
-                          className={`py-2 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer shadow ${
-                            subtitleMode === "two"
-                              ? "bg-amber-500 hover:bg-amber-400 text-slate-950 ring-1 ring-amber-400"
-                              : "bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30"
-                          }`}
-                          title="စာတန်းထိုး နှစ်ကြောင်း .srt ဖိုင် ဒေါင်းလုဒ်လုပ်မည်"
-                        >
-                          <Download className="w-3.5 h-3.5 shrink-0" />
-                          <span>.SRT နှစ်ကြောင်း</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleCopySrt()}
-                          className="py-2 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer border border-slate-700"
-                          title="လက်ရှိ စာတန်းထိုး စာသားများကို ကူးယူမည်"
-                        >
-                          <Copy className="w-3.5 h-3.5 shrink-0" />
-                          <span>ကူးယူမည်</span>
-                        </button>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] px-0.5">
-                        <span className="text-slate-400 flex items-center gap-1">
-                          {subtitleMode === "single" ? "တစ်ကြောင်းချင်း တိုတိုပြတ်ပြတ် စာတန်းထိုး" : "နှစ်ကြောင်းတွဲ ညီညာသော စာတန်းထိုး"}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowSrtModal(!showSrtModal)}
-                          className="text-[11px] text-pink-400 hover:text-pink-300 font-medium hover:underline cursor-pointer"
-                        >
-                          {showSrtModal ? "စာတန်းထိုးပိတ်မည် ✕" : "SRT စာသားကြည့်မည် 👁️"}
-                        </button>
-                      </div>
-
-                      {/* Raw SRT Code View */}
-                      {showSrtModal && (
-                        <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-[11px] text-amber-300 max-h-48 overflow-y-auto leading-relaxed select-all">
-                          <pre className="whitespace-pre-wrap">
-                            {subtitleMode === "two" ? currentTwoLineSrt : currentSingleLineSrt}
-                          </pre>
-                        </div>
-                      )}
-
-                      {/* Interactive Teleprompter Subtitle list */}
-                      <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-2.5 max-h-52 overflow-y-auto space-y-1.5 font-sans">
-                        {(subtitleMode === "two" ? twoLineCues : singleLineCues).map((cue) => {
-                          const isActive = activeCueId === cue.id;
-                          return (
-                            <div
-                              key={cue.id}
-                              onClick={() => seekToTime(cue.startMs)}
-                              className={`p-2.5 rounded-lg cursor-pointer transition-all flex items-start gap-2.5 ${
-                                isActive
-                                  ? "bg-amber-500/25 border border-amber-500/60 text-amber-200 shadow-md ring-1 ring-amber-500/30"
-                                  : "hover:bg-slate-900/80 text-slate-300 hover:text-white"
-                              }`}
-                              title="ဤနေရာမှ စတင်နားဆင်ရန် နှိပ်ပါ"
-                            >
-                              <div className="flex flex-col items-center gap-1 shrink-0 pt-0.5">
-                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 text-amber-400/90 border border-slate-800">
-                                  #{cue.id}
-                                </span>
-                                <span className="text-[9px] font-mono text-slate-500">
-                                  {cue.startTime.split(",")[0]}
-                                </span>
-                              </div>
-                              <div className="text-xs leading-relaxed font-medium whitespace-pre-line flex-1">
-                                {cue.text}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
-                        <span>CapCut, Premiere, TikTok, Facebook Reels သို့ တိုက်ရိုက်ထည့်သွင်းနိုင်ပါသည်</span>
-                        <span className="text-amber-400 font-mono">
-                          {(subtitleMode === "two" ? twoLineCues : singleLineCues).length} Cues
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-        {/* Tab 2: AI Script Assistant */}
-        {activeTab === "ai" && (
-          <div className="max-w-3xl mx-auto space-y-6">
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center border border-pink-500/30">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-white">Gemini AI စာမူလက်ထောက်</h2>
-                  <p className="text-xs text-slate-400">စတူဒီယိုတွင် အသံပြောင်းရန် မြန်မာဘာသာဖြင့် စာမူများ အလိုအလျောက် ရေးသားပေးမည့်စနစ်</p>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-300">အမျိုးအစား ရွေးချယ်ပါ:</label>
-                  <div className="flex flex-wrap gap-2">
-                    {["သတင်း", "ဆောင်းပါး", "ဇာတ်လမ်း / ဝတ္ထု", "ကြော်ငြာ", "ကဗျာ"].map((cat) => (
+                  <div className="space-y-2">
+                    {/* Main Audio Controls */}
+                    <div className="grid grid-cols-2 gap-2">
                       <button
-                        key={cat}
-                        onClick={() => setAiCategory(cat)}
-                        className={`px-4 py-2 rounded-xl border text-xs font-medium transition-all ${
-                          aiCategory === cat 
-                            ? "bg-pink-600 border-pink-500 text-white" 
-                            : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-                        }`}
+                        type="button"
+                        onClick={togglePlay}
+                        disabled={!currentBlobUrl}
+                        className="py-3 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                       >
-                        {cat}
+                        {isPlaying ? <Pause className="w-4 h-4 text-pink-400" /> : <Play className="w-4 h-4" />}
+                        {isPlaying ? "ရပ်မည် (Pause)" : "နားဆင်မည်"}
                       </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-300">ဘာအကြောင်းအရာ ရေးပေးရမလဲ?</label>
-                  <textarea
-                    rows={4}
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    placeholder="ဥပမာ - ရန်ကုန်မြို့ရဲ့ နွေရာသီ အလှအပအကြောင်း သာယာနာပျော်ဖွယ် ဇာတ်ကြောင်းလေး တစ်ပုဒ် ရေးပေးပါ..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-pink-500"
-                  />
-                </div>
-
-                <button
-                  onClick={handleAiGenerateScript}
-                  disabled={isAiGenerating || !aiPrompt.trim()}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-pink-600 to-violet-600 hover:from-pink-500 hover:to-violet-500 text-white font-bold text-xs shadow-lg shadow-pink-600/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                >
-                  {isAiGenerating ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      AI ဖြင့် စာမူဖန်တီးနေပါသည်...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      စာမူစတင်ထုတ်ယူမည်
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab 3: History & Downloads */}
-        {activeTab === "history" && (
-          <div className="max-w-4xl mx-auto space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <History className="w-5 h-5 text-pink-500" />
-                ယခင်ဖန်တီးခဲ့သော MP3 အသံဖိုင်မှတ်တမ်းများနှင့် ဒေါင်းလုဒ်များ ({history.length})
-              </h2>
-              {history.length > 0 && (
-                <button
-                  onClick={() => saveHistoryToStorage([])}
-                  className="text-xs text-red-400 hover:text-red-300 transition-colors flex items-center gap-1 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> အားလုံးဖျက်မည်
-                </button>
-              )}
-            </div>
-
-            {history.length === 0 ? (
-              <div className="text-center py-16 bg-slate-900/40 border border-slate-800/80 rounded-2xl">
-                <Music className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm">ဖန်တီးထားသော အသံဖိုင်မှတ်တမ်း မရှိသေးပါ။</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {history.map((item) => (
-                  <div key={item.id} className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl flex items-center justify-between gap-4">
-                    <div className="space-y-1 overflow-hidden">
-                      <p className="text-sm font-medium text-white truncate">{item.text}</p>
-                      <div className="flex items-center gap-3 text-xs text-slate-400">
-                        <span className="text-pink-400 font-medium">{item.voiceName}</span>
-                        <span>·</span>
-                        <span>{item.createdAt}</span>
-                        {item.fileSize && (
-                          <>
-                            <span>·</span>
-                            <span className="text-slate-500 font-mono">{item.fileSize}</span>
-                          </>
-                        )}
-                        <span className="uppercase text-[10px] px-1.5 py-0.5 rounded bg-slate-800 font-mono text-emerald-400">
-                          .MP3
-                        </span>
-                        {item.srt && (
-                          <span className="uppercase text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 font-mono text-amber-400">
-                            .SRT Ready
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                      
                       <button
-                        onClick={() => {
-                          if (audioRef.current && item.blobUrl) {
-                            audioRef.current.src = item.blobUrl;
-                            audioRef.current.play().catch(() => {});
-                            setIsPlaying(true);
-                            if (item.singleLineCues) {
-                              setSingleLineCues(item.singleLineCues);
-                            }
-                            if (item.twoLineCues) {
-                              setTwoLineCues(item.twoLineCues);
-                            }
-                            if (item.singleLineSrt) {
-                              setCurrentSingleLineSrt(item.singleLineSrt);
-                            } else if (item.srt) {
-                              setCurrentSingleLineSrt(item.srt);
-                            }
-                            if (item.twoLineSrt) {
-                              setCurrentTwoLineSrt(item.twoLineSrt);
-                            }
-                          }
-                        }}
-                        title="နားဆင်ရန်"
-                        className="p-2.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white transition-colors cursor-pointer"
-                      >
-                        <Play className="w-4 h-4 fill-white" />
-                      </button>
-                      <button
-                        onClick={() => handleDownloadFile(item.blobUrl, `lin_zaw_${item.id}.mp3`)}
-                        title="အသံဖိုင် ဒေါင်းလုဒ်လုပ်ရန်"
-                        className="p-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold"
+                        type="button"
+                        onClick={() => handleDownloadFile()}
+                        disabled={!currentBlobUrl}
+                        className="py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-lg shadow-emerald-600/20"
                       >
                         <Download className="w-4 h-4" />
-                        <span className="hidden sm:inline">.MP3</span>
+                        ဒေါင်းလုဒ် (.MP3)
                       </button>
-                      {(item.singleLineSrt || item.srt) && (
-                        <button
-                          onClick={() => handleDownloadSrt("single", item.singleLineSrt || item.srt, `lin_zaw_single_line_${item.id}.srt`)}
-                          title="စာတန်းထိုး တစ်ကြောင်း (.SRT) ဒေါင်းလုဒ်လုပ်ရန်"
-                          className="p-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold"
-                        >
-                          <Download className="w-4 h-4" />
-                          <span className="hidden sm:inline">.SRT (၁ ကြောင်း)</span>
-                        </button>
-                      )}
-                      {item.twoLineSrt && (
-                        <button
-                          onClick={() => handleDownloadSrt("two", item.twoLineSrt, `lin_zaw_two_lines_${item.id}.srt`)}
-                          title="စာတန်းထိုး နှစ်ကြောင်း (.SRT) ဒေါင်းလုဒ်လုပ်ရန်"
-                          className="p-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-bold"
-                        >
-                          <Download className="w-4 h-4" />
-                          <span className="hidden sm:inline">.SRT (၂ ကြောင်း)</span>
-                        </button>
-                      )}
+                    </div>
+
+                    {/* SRT Subtitle Downloads (Directly under MP3 download) */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadSrt("single")}
+                        disabled={!currentSingleLineSrt}
+                        className="py-2.5 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed border border-amber-500/30 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                        title="SRT စာတန်းထိုး တစ်ကြောင်း ဒေါင်းလုဒ်ရယူမည်"
+                      >
+                        <Download className="w-4 h-4 text-amber-400" />
+                        <span>.srt တစ်ကြောင်း</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadSrt("two")}
+                        disabled={!currentTwoLineSrt}
+                        className="py-2.5 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed border border-amber-500/30 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                        title="SRT စာတန်းထိုး နှစ်ကြောင်း ဒေါင်းလုဒ်ရယူမည်"
+                      >
+                        <Download className="w-4 h-4 text-amber-400" />
+                        <span>.srt နှစ်ကြောင်း</span>
+                      </button>
                     </div>
                   </div>
-                ))}
+                </div>
               </div>
-            )}
+
+            </div>
+
           </div>
         )}
 
-        {/* Tab 4: Settings */}
+        {/* Tab: Settings */}
         {activeTab === "settings" && (
           <div className="max-w-2xl mx-auto space-y-6">
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6">
@@ -1572,7 +1699,7 @@ export default function App() {
                 <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                   <div className="flex justify-between">
                     <span className="text-slate-400">အပလီကေးရှင်း အမည်:</span>
-                    <span className="text-white font-medium">လင်းဇော် အသံထွက် စတူဒီယို (Lin Zaw TTS Pro)</span>
+                    <span className="text-white font-medium">လင်းလင်းဇော် (Lin Lin Zaw TTS)</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">ဗားရှင်း:</span>
@@ -1594,10 +1721,205 @@ export default function App() {
 
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-800/80 py-4 px-6 text-center text-xs text-slate-500">
-        <p>© 2026 လင်းဇော် TTS Studio Pro · High Fidelity Burmese Text to Speech & MP3 Downloader</p>
-      </footer>
+      {/* Generated Voices History Modal (IMG_0115.jpeg) */}
+      {isHistoryModalOpen && (
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 md:p-6 animate-fadeIn"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsHistoryModalOpen(false);
+              if (historyAudioRef.current) historyAudioRef.current.pause();
+              setHistoryPlayingId(null);
+            }
+          }}
+        >
+          <div 
+            className="relative bg-[#0b1220] border border-slate-800 rounded-3xl w-full max-w-2xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden animate-scaleUp"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 md:p-5 border-b border-slate-800/80 flex items-center justify-between bg-slate-900/40">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2ZM12 18C9.79 18 8 16.21 8 14C8 11.79 9.79 10 12 10C14.21 10 16 11.79 16 14C16 16.21 14.21 18 12 18ZM13 9V3.5L18.5 9H13Z"/>
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white tracking-tight">Generated Voices</h3>
+                  <p className="text-xs text-slate-400">Listen or download audio & SRT</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {history.length > 0 && (
+                  <button
+                    onClick={() => {
+                      if (confirm("မှတ်တမ်းအားလုံးကို ဖျက်ပစ်ရန် သေချာပါသလား?")) {
+                        saveHistoryToStorage([]);
+                        if (historyAudioRef.current) historyAudioRef.current.pause();
+                        setHistoryPlayingId(null);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-700/60"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Clear
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setIsHistoryModalOpen(false);
+                    if (historyAudioRef.current) historyAudioRef.current.pause();
+                    setHistoryPlayingId(null);
+                  }}
+                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body - History List */}
+            <div className="p-4 md:p-5 space-y-3.5 overflow-y-auto max-h-[calc(88vh-130px)]">
+              {history.length === 0 ? (
+                <div className="text-center py-16 px-4 bg-slate-900/30 border border-slate-800/80 rounded-2xl">
+                  <Music className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                  <p className="text-slate-300 text-sm font-medium">ဖန်တီးထားသော အသံဖိုင်မှတ်တမ်း မရှိသေးပါ။</p>
+                  <p className="text-slate-500 text-xs mt-1">အသံဖိုင်ထုတ်လုပ်ပြီးနောက် ဤနေရာတွင် ပြန်လည်နားဆင်/ဒေါင်းလုဒ်ဆွဲနိုင်ပါသည်။</p>
+                </div>
+              ) : (
+                history.map((item) => (
+                  <div 
+                    key={item.id} 
+                    className="bg-[#0e1626] border border-[#1e293b] rounded-2xl p-4 space-y-3 transition-all hover:border-slate-700 shadow-md text-left"
+                  >
+                    {/* Header Row: Yellow Dot, Voice Name & Subtitle, Timestamp */}
+                    <div className="flex items-center justify-between text-xs gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0 shadow-sm shadow-amber-400/50"></span>
+                        <span className="font-bold text-white text-xs">{item.voiceName}</span>
+                        {item.voiceSubtitle && (
+                          <span className="text-amber-400 text-xs font-medium">{item.voiceSubtitle}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 text-slate-400 text-xs font-mono shrink-0">
+                        <Clock className="w-3.5 h-3.5 text-slate-500" />
+                        <span>{item.createdAt}</span>
+                      </div>
+                    </div>
+
+                    {/* Myanmar Text Snippet */}
+                    <p className="text-xs md:text-sm text-slate-300 leading-relaxed font-sans line-clamp-2">
+                      "{item.text}"
+                    </p>
+
+                    {/* Badges Row: Speed & Pitch */}
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-amber-300 font-semibold">
+                        <Zap className="w-3 h-3 text-amber-400" />
+                        {item.speedBadge || "1.30x"}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-pink-300 font-semibold">
+                        <Music className="w-3 h-3 text-pink-400" />
+                        {item.pitchBadge || "+0Hz"}
+                      </span>
+                      {item.fileSize && (
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {item.fileSize}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Actions Row (Matching IMG_0115.jpeg) */}
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-800/60">
+                      {/* Play / Pause button */}
+                      <button
+                        onClick={() => handleTogglePlayHistoryItem(item)}
+                        className={`px-4 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          historyPlayingId === item.id
+                            ? "bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-bold"
+                            : "bg-slate-800 hover:bg-slate-700 text-white"
+                        }`}
+                      >
+                        {historyPlayingId === item.id ? (
+                          <>
+                            <Pause className="w-3.5 h-3.5 fill-current" />
+                            Pause
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5 fill-current" />
+                            Play
+                          </>
+                        )}
+                      </button>
+
+                      {/* Right Action Icons */}
+                      <div className="flex items-center gap-1.5">
+                        {/* Copy Text */}
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(item.text);
+                            alert("စာသားကို ကူးယူပြီးပါပြီ။");
+                          }}
+                          title="စာသား ကူးယူမည်"
+                          className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+
+                        {/* Download MP3 */}
+                        <button
+                          onClick={() => handleDownloadHistoryMp3(item)}
+                          title="MP3 အသံဖိုင် ဒေါင်းလုဒ်ရယူမည်"
+                          className="p-2 rounded-xl text-slate-400 hover:text-emerald-400 hover:bg-slate-800/80 transition-colors cursor-pointer"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+
+                        {/* Download SRT */}
+                        <button
+                          onClick={() => handleDownloadHistorySrt(item)}
+                          title="SRT စာတန်းထိုး ဒေါင်းလုဒ်ရယူမည်"
+                          className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 hover:text-amber-300 text-xs font-bold font-mono flex items-center gap-1 transition-all cursor-pointer"
+                        >
+                          <Subtitles className="w-3.5 h-3.5" />
+                          SRT
+                        </button>
+
+                        {/* Delete single item */}
+                        <button
+                          onClick={() => {
+                            const updated = history.filter((h) => h.id !== item.id);
+                            saveHistoryToStorage(updated);
+                            if (historyPlayingId === item.id) {
+                              if (historyAudioRef.current) historyAudioRef.current.pause();
+                              setHistoryPlayingId(null);
+                            }
+                          }}
+                          title="မှတ်တမ်းမှ ဖျက်မည်"
+                          className="p-2 rounded-xl text-slate-500 hover:text-red-400 hover:bg-slate-800/80 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden Audio for History Playback */}
+      <audio
+        ref={historyAudioRef}
+        onEnded={() => setHistoryPlayingId(null)}
+        onError={() => setHistoryPlayingId(null)}
+        className="hidden"
+      />
     </div>
   );
 }
