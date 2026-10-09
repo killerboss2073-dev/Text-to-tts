@@ -1443,19 +1443,23 @@ CRITICAL TRANSLATION & SPOKEN VOICEOVER RULES:
     }
   });
 
-  // Setup Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  // Setup static serving for production or fallback to Vite middleware
+  const distPath = path.resolve(__dirname, "dist");
+  const indexPath = path.resolve(distPath, "index.html");
+
+  if (process.env.NODE_ENV === "production" && fs.existsSync(indexPath)) {
+    console.log(`Serving static production files from: ${distPath}`);
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => {
+      res.sendFile(indexPath);
+    });
+  } else {
+    console.log("Serving application using Vite middleware mode...");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.resolve(__dirname, "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.resolve(distPath, "index.html"));
-    });
   }
 
   app.listen(Number(port), "0.0.0.0", () => {
