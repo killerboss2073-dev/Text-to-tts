@@ -36,8 +36,31 @@ import {
   Menu,
   Globe,
   ArrowRightLeft,
-  ArrowRight
+  ArrowRight,
+  User,
+  Shield,
+  Crown,
+  LogOut,
+  BarChart3,
+  Upload,
+  Send,
+  Users,
+  Languages
 } from "lucide-react";
+import { onAuthStateChanged } from "firebase/auth";
+import { 
+  auth, 
+  loginWithGoogle, 
+  loginWithGoogleEmail,
+  logoutUser, 
+  syncUserProfile, 
+  recordGeneration, 
+  getDemoUserProfile,
+  createUpgradeRequest,
+  UserProfile 
+} from "./firebase";
+import { UserDashboard } from "./components/UserDashboard";
+import { AuthModal } from "./components/AuthModal";
 
 interface SubtitleCue {
   id: number;
@@ -165,9 +188,316 @@ const SAMPLE_TEXTS = [
   "သတင်းထုတ်ပြန်ချက်။ ယနေ့ညနေပိုင်းတွင် ရန်ကုန်မြို့၌ အထူးဆွေးနွေးပွဲ ကျင်းပမည်ဖြစ်ပါသည်။",
 ];
 
+export function getMaxCharLimit(user: UserProfile | null): number {
+  if (!user) return 3000;
+  if (user.role === 'admin' || user.email?.toLowerCase() === 'nwe98698@gmail.com') return Infinity;
+  if (user.role === 'premium') return 30000;
+  return 5000;
+}
+
+export interface TranslationHistoryItem {
+  id: string;
+  timestamp: string;
+  sourceText: string;
+  translatedText: string;
+  charCount: number;
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"studio" | "settings">("studio");
+  const [activeTab, setActiveTab] = useState<"studio" | "translate" | "settings">("studio");
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
+  
+  // Auth & Dashboard state
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isDashboardOpen, setIsDashboardOpen] = useState<boolean>(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState<boolean>(false);
+  const [planStep, setPlanStep] = useState<'info' | 'payment'>('info');
+  const [paymentSlipBase64, setPaymentSlipBase64] = useState<string>('');
+  const [copiedPhoneToast, setCopiedPhoneToast] = useState<boolean>(false);
+  const [planSuccessNotice, setPlanSuccessNotice] = useState<string | null>(null);
+  const [isSubmittingPlan, setIsSubmittingPlan] = useState<boolean>(false);
+  const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [isTranslateNoticeOpen, setIsTranslateNoticeOpen] = useState<boolean>(false);
+
+  const handleBuyPlanClick = () => {
+    if (!userProfile) {
+      setIsPlanModalOpen(false);
+      setIsAuthModalOpen(true);
+      setAuthNotice("Premium Plan ဝယ်ယူရန် ကျေးဇူးပြု၍ Google Account ဖြင့် Sign In ဝင်ရောက်ပေးပါ။");
+      return;
+    }
+
+    setPlanStep('payment');
+  };
+
+  const handleCopyPhone = () => {
+    navigator.clipboard.writeText("09779710273");
+    setCopiedPhoneToast(true);
+    setTimeout(() => setCopiedPhoneToast(false), 3000);
+  };
+
+  const handleSlipFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 20 * 1024 * 1024) {
+      alert("ပုံ ပမာဏသည် 20MB ထက် မကြီးရပါ!");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 900;
+        const MAX_HEIGHT = 1200;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width = Math.round((width * MAX_HEIGHT) / height);
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL("image/jpeg", 0.75);
+          setPaymentSlipBase64(compressed);
+        } else {
+          setPaymentSlipBase64(event.target?.result as string);
+        }
+      };
+      img.onerror = () => {
+        setPaymentSlipBase64(event.target?.result as string);
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSubmitPaymentProof = async () => {
+    if (!userProfile) return;
+    if (!paymentSlipBase64) {
+      alert("ကျေးဇူးပြု၍ ငွေလွှဲထားသော ပြေစာ (Slip) ပုံကို ပထမဦးစွာ ရွေးချယ်တင်ပေးပါ!");
+      return;
+    }
+
+    setIsSubmittingPlan(true);
+    try {
+      await createUpgradeRequest(userProfile, paymentSlipBase64);
+      setPlanSuccessNotice("✅ ငွေလွှဲပြေစာ ပေးပို့ပြီးပါပြီ! Admin မှ စိစစ်ပြီးပါက အကောင့်အား Premium Member (၃၀,၀၀၀ စာလုံး) သို့ ချက်ချင်း မြှင့်တင်ပေးပါမည်။");
+    } catch (e: any) {
+      alert("Error: " + (e?.message || e));
+    } finally {
+      setIsSubmittingPlan(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+    } catch (e) {
+      console.warn("Logout notice:", e);
+    }
+    setUserProfile(null);
+    localStorage.removeItem("lin_zaw_tts_user_profile");
+    sessionStorage.removeItem("lin_zaw_tts_user_profile");
+  };
+
+  const saveUserProfile = (profile: UserProfile | null) => {
+    setUserProfile(profile);
+    if (profile) {
+      localStorage.setItem("lin_zaw_tts_user_profile", JSON.stringify(profile));
+    } else {
+      localStorage.removeItem("lin_zaw_tts_user_profile");
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setAuthNotice(null);
+    const res = await loginWithGoogle();
+    if (res.user) {
+      saveUserProfile(res.user);
+      setIsAuthModalOpen(false);
+    } else if (res.error) {
+      setAuthNotice(res.error);
+    }
+  };
+
+  const handleSelectDemoRole = (role: 'admin' | 'premium' | 'normal') => {
+    const demoUser = getDemoUserProfile(role);
+    saveUserProfile(demoUser);
+    if (role === 'admin') {
+      setIsDashboardOpen(true);
+    }
+  };
+
+  const handleEmailLogin = async (email: string) => {
+    setAuthNotice(null);
+    const profile = await loginWithGoogleEmail(email);
+    saveUserProfile(profile);
+    setIsAuthModalOpen(false);
+    if (profile.role === 'admin' || profile.email?.toLowerCase().trim() === 'nwe98698@gmail.com') {
+      setIsDashboardOpen(true);
+    }
+  };
+
+  // Subscribe to Firebase Auth and restore saved session + verify latest role
+  useEffect(() => {
+    const checkServerRole = async (profile: UserProfile) => {
+      try {
+        const cleanEmail = profile.email.toLowerCase();
+        const res = await fetch(`/api/users/me?email=${encodeURIComponent(cleanEmail)}&uid=${profile.uid || ''}`);
+        if (res.ok) {
+          const liveData = await res.json();
+          if (liveData) {
+            if (liveData.forceLogout) {
+              handleLogout();
+              alert("⚠️ Admin မှ အကောင့်အား Logout ထွက်ခိုင်းလိုက်ပါသဖြင့် အကောင့်မှ ထွက်ပြီးဖြစ်ပါသည်။");
+              return;
+            }
+            if (liveData.role && (liveData.role !== profile.role || liveData.premiumExpiresAt !== profile.premiumExpiresAt)) {
+              const updated = { 
+                ...profile, 
+                role: liveData.role, 
+                premiumExpiresAt: liveData.premiumExpiresAt 
+              };
+              setUserProfile(updated);
+              localStorage.setItem("lin_zaw_tts_user_profile", JSON.stringify(updated));
+            }
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    // 1. Immediately restore saved profile on mount
+    const saved = localStorage.getItem("lin_zaw_tts_user_profile");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.email) {
+          setUserProfile(parsed);
+          checkServerRole(parsed);
+        }
+      } catch (e) {
+        console.error("Failed to parse saved user profile", e);
+      }
+    }
+
+    // 2. Subscribe to Firebase Auth state without destroying saved session
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const profile = await syncUserProfile(firebaseUser);
+          saveUserProfile(profile);
+          checkServerRole(profile);
+        } catch (e) {
+          console.error("Auth profile sync error:", e);
+        }
+      } else {
+        // If Firebase Auth returns null (e.g., in iframe or JWT login), keep localStorage session alive
+        const savedSession = localStorage.getItem("lin_zaw_tts_user_profile");
+        if (savedSession) {
+          try {
+            const parsed = JSON.parse(savedSession);
+            if (parsed && parsed.email) {
+              setUserProfile(parsed);
+              checkServerRole(parsed);
+            }
+          } catch (e) {}
+        }
+      }
+      setIsLoadingAuth(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Continuous background synchronization of user role
+  useEffect(() => {
+    if (!userProfile?.email) return;
+
+    let isSubscribed = true;
+
+    const syncLiveRole = async () => {
+      try {
+        const cleanEmail = userProfile.email.toLowerCase();
+        const res = await fetch(`/api/users/me?email=${encodeURIComponent(cleanEmail)}&uid=${userProfile.uid || ''}`);
+        if (res.ok) {
+          const liveData = await res.json();
+          if (liveData && isSubscribed) {
+            if (liveData.forceLogout) {
+              handleLogout();
+              alert("⚠️ Admin မှ အကောင့်အား Logout ထွက်ခိုင်းလိုက်ပါသဖြင့် အကောင့်မှ ထွက်ပြီးဖြစ်ပါသည်။");
+              return;
+            }
+            if (liveData.role && (liveData.role !== userProfile.role || liveData.premiumExpiresAt !== userProfile.premiumExpiresAt)) {
+              const updated = { 
+                ...userProfile, 
+                role: liveData.role, 
+                premiumExpiresAt: liveData.premiumExpiresAt 
+              };
+              setUserProfile(updated);
+              localStorage.setItem("lin_zaw_tts_user_profile", JSON.stringify(updated));
+            }
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    const interval = setInterval(syncLiveRole, 4000);
+    const onFocus = () => syncLiveRole();
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      isSubscribed = false;
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [userProfile?.email, userProfile?.uid, userProfile?.role, userProfile?.premiumExpiresAt]);
+
+  // Also sync role immediately when drawer is opened
+  useEffect(() => {
+    if (isDrawerOpen && userProfile?.email) {
+      const cleanEmail = userProfile.email.toLowerCase();
+      fetch(`/api/users/me?email=${encodeURIComponent(cleanEmail)}&uid=${userProfile.uid || ''}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) {
+            if (data.forceLogout) {
+              handleLogout();
+              return;
+            }
+            if (data.role && (data.role !== userProfile.role || data.premiumExpiresAt !== userProfile.premiumExpiresAt)) {
+              const updated = { 
+                ...userProfile, 
+                role: data.role, 
+                premiumExpiresAt: data.premiumExpiresAt 
+              };
+              setUserProfile(updated);
+              localStorage.setItem("lin_zaw_tts_user_profile", JSON.stringify(updated));
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isDrawerOpen, userProfile]);
   
   // Translation State
   const [translateSourceText, setTranslateSourceText] = useState<string>("");
@@ -175,6 +505,21 @@ export default function App() {
   const [sourceLang, setSourceLang] = useState<string>("Auto Detect");
   const [targetLang, setTargetLang] = useState<string>("Burmese");
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
+  const [translationHistory, setTranslationHistory] = useState<TranslationHistoryItem[]>(() => {
+    try {
+      const saved = localStorage.getItem("lin_zaw_tts_translation_history");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const saveTranslationHistory = (items: TranslationHistoryItem[]) => {
+    setTranslationHistory(items);
+    try {
+      localStorage.setItem("lin_zaw_tts_translation_history", JSON.stringify(items));
+    } catch (e) {}
+  };
 
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>(VOICES[0]);
   const [selectedTone, setSelectedTone] = useState<string>("normal");
@@ -477,6 +822,15 @@ export default function App() {
     }
   }, []);
 
+  const maxCharLimit = getMaxCharLimit(userProfile);
+
+  // Auto-truncate text if it exceeds current user's maxCharLimit
+  useEffect(() => {
+    if (maxCharLimit !== Infinity && text.length > maxCharLimit) {
+      setText(prev => prev.slice(0, maxCharLimit));
+    }
+  }, [maxCharLimit]);
+
   const saveHistoryToStorage = (newHistory: AudioHistoryItem[]) => {
     setHistory(newHistory);
     try {
@@ -489,6 +843,25 @@ export default function App() {
   // Dedicated MP3 Audio & Exact SRT Subtitle Generation (Single Line & Two Lines)
   const handleGenerateAudio = async () => {
     if (!text.trim()) return;
+
+    // Check character count limit per user role
+    if (text.length > maxCharLimit) {
+      let roleText = "Google Login မဝင်ထားသောကြောင့် (ကန့်သတ်ချက်: ၃,၀၀၀ စာလုံး)";
+      if (userProfile) {
+        if (userProfile.role === 'normal') roleText = "Normal Member ဖြစ်သောကြောင့် (ကန့်သတ်ချက်: ၅,၀၀၀ စာလုံး)";
+        if (userProfile.role === 'premium') roleText = "Premium VIP Member ဖြစ်သောကြောင့် (ကန့်သတ်ချက်: ၃၀,၀၀၀ စာလုံး)";
+      }
+
+      alert(`⚠️ စာသား အရေအတွက် ကန့်သတ်ချက်ထက် ကျော်လွန်နေပါသည်!\n\n${roleText}\n\nလက်ရှိ စာသားအရေအတွက်: ${text.length.toLocaleString()} လုံး\n\nကျေးဇူးပြု၍ စာသား လျှော့ပေးပါ သို့မဟုတ် အကောင့်မြှင့်တင်ပါ။`);
+      return;
+    }
+
+    // Check quota for Normal users
+    if (userProfile && userProfile.role === 'normal' && (userProfile.dailyGenerations || 0) >= 10) {
+      alert("ယနေ့အတွက် အခမဲ့ ၁၀ ကြိမ် ပြည့်သွားပါပြီ။ Premium Member အဖြစ် အကောင့်မြှင့်တင်ပါ သို့မဟုတ် မနက်ဖြန် ထပ်မံ အသုံးပြုပါ။");
+      return;
+    }
+
     setIsGenerating(true);
     setIsPlaying(false);
     setStatusMessage("🎙️ MP3 အသံဖိုင်နှင့် စာတန်းထိုး (.SRT) ထုတ်လုပ်နေပါသည်...");
@@ -535,6 +908,16 @@ export default function App() {
       setSingleLineCues(sCues);
       setTwoLineCues(tCues);
       setActiveCueId(null);
+
+      // Record generation in Firestore (for logged in users and guests)
+      recordGeneration(userProfile, text, selectedVoice.name);
+      if (userProfile) {
+        setUserProfile((prev) => prev ? {
+          ...prev,
+          generationCount: (prev.generationCount || 0) + 1,
+          dailyGenerations: (prev.dailyGenerations || 0) + 1
+        } : null);
+      }
 
       const sizeKb = (finalBlob.size / 1024).toFixed(1) + " KB";
       const now = new Date();
@@ -1111,6 +1494,12 @@ export default function App() {
 
   const handleTranslate = async () => {
     if (!translateSourceText.trim()) return;
+    const maxLimit = getMaxCharLimit(userProfile);
+    if (maxLimit !== Infinity && translateSourceText.length > maxLimit) {
+      setDownloadSuccessToast(`⚠️ စာလုံးရေ ကန့်သတ်ချက် (${maxLimit.toLocaleString()} စာလုံး) ထက် ကျော်လွန်နေပါသည်။`);
+      setTimeout(() => setDownloadSuccessToast(null), 3500);
+      return;
+    }
     setIsTranslating(true);
     try {
       const res = await fetch("/api/gemini/translate", {
@@ -1118,29 +1507,84 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: translateSourceText,
-          sourceLang,
-          targetLang,
+          sourceLang: "Auto Detect",
+          targetLang: "Burmese",
         }),
       });
       const data = await res.json();
       if (data.translatedText) {
         setTranslateResultText(data.translatedText);
+        
+        // Format Timestamp matching "26/09/2026 12:21"
+        const now = new Date();
+        const d = String(now.getDate()).padStart(2, '0');
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const y = now.getFullYear();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const timeFormatted = `${d}/${m}/${y} ${hh}:${mm}`;
+
+        const newItem: TranslationHistoryItem = {
+          id: "tr_" + Date.now(),
+          timestamp: timeFormatted,
+          sourceText: translateSourceText,
+          translatedText: data.translatedText,
+          charCount: data.translatedText.length,
+        };
+
+        const updatedHistory = [newItem, ...translationHistory.filter(h => h.sourceText !== translateSourceText)].slice(0, 30);
+        saveTranslationHistory(updatedHistory);
+
+        setDownloadSuccessToast("✨ ဘာသာပြန်ဆိုပြီးပါပြီ");
+        setTimeout(() => setDownloadSuccessToast(null), 3000);
       } else {
-        alert("ဘာသာပြန်ဆို၍ မရပါ။ စာသားကို ပြန်လည်စစ်ဆေးပါ။");
+        setDownloadSuccessToast("⚠️ ဘာသာပြန်ဆို၍ မရပါ။ စာသားကို ပြန်လည်စစ်ဆေးပါ။");
+        setTimeout(() => setDownloadSuccessToast(null), 3500);
       }
     } catch (e: any) {
-      alert("Translation Error: " + e.message);
+      setDownloadSuccessToast("❌ Translation Error: " + (e?.message || e));
+      setTimeout(() => setDownloadSuccessToast(null), 3500);
     } finally {
       setIsTranslating(false);
     }
   };
 
+  const handleRecallTranslation = (item: TranslationHistoryItem) => {
+    setTranslateSourceText(item.sourceText);
+    setTranslateResultText(item.translatedText);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setDownloadSuccessToast("စာသားကို ပြန်လည်ခေါ်ယူလိုက်ပါပြီ။");
+    setTimeout(() => setDownloadSuccessToast(null), 2500);
+  };
+
+  const handleCopyText = (txt: string, msg: string = "စာသားကို ကူးယူပြီးပါပြီ။") => {
+    navigator.clipboard.writeText(txt);
+    setDownloadSuccessToast(msg);
+    setTimeout(() => setDownloadSuccessToast(null), 2500);
+  };
+
+  const handleSendToTTS = (txt: string) => {
+    setText(txt);
+    setActiveTab("studio");
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setDownloadSuccessToast("အသံထွက်စတူဒီယိုသို့ စာသား ပို့ပြီးပါပြီ။");
+    setTimeout(() => setDownloadSuccessToast(null), 3000);
+  };
+
+  const handleClearTranslationHistory = () => {
+    saveTranslationHistory([]);
+    setDownloadSuccessToast("ဘာသာပြန်မှတ်တမ်းအားလုံးကို ရှင်းလင်းပြီးပါပြီ။");
+    setTimeout(() => setDownloadSuccessToast(null), 2500);
+  };
+
+  const handleDeleteTranslationItem = (id: string) => {
+    const updated = translationHistory.filter(h => h.id !== id);
+    saveTranslationHistory(updated);
+  };
+
   const handleSendTranslateToStudio = () => {
     if (!translateResultText.trim()) return;
-    setText(translateResultText);
-    setDownloadSuccessToast("အသံထွက်စတူဒီယိုသို့ စာသား ပို့ပြီးပါပြီ။");
-    setTimeout(() => setDownloadSuccessToast(null), 3500);
-    setActiveTab("studio");
+    handleSendToTTS(translateResultText);
   };
 
   const handleSwapLanguages = () => {
@@ -1176,6 +1620,60 @@ export default function App() {
             လင်းလင်းဇော်
           </h1>
         </div>
+
+          {/* Right Side: Auth / Dashboard Bar */}
+        <div className="flex items-center gap-2.5">
+          {userProfile ? (
+            <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-800 p-1.5 pl-3 rounded-2xl">
+              <div className="flex items-center gap-2">
+                {userProfile.photoURL ? (
+                  <img src={userProfile.photoURL} alt="Avatar" className="w-7 h-7 rounded-xl object-cover border border-slate-700" />
+                ) : (
+                  <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-pink-500 to-violet-600 flex items-center justify-center font-bold text-white text-xs">
+                    {userProfile.displayName?.[0] || userProfile.email?.[0] || 'U'}
+                  </div>
+                )}
+                <div className="hidden md:block text-left">
+                  <div className="text-xs font-bold text-white truncate max-w-[120px]">{userProfile.displayName || userProfile.email || 'User'}</div>
+                  <div className="text-[10px] text-pink-400 font-mono flex items-center gap-1">
+                    {(userProfile.role === 'admin' || userProfile.email?.toLowerCase() === 'nwe98698@gmail.com') ? (
+                      <span className="text-red-400 font-bold">🛡️ ADMIN</span>
+                    ) : userProfile.role === 'premium' ? (
+                      <span className="text-amber-300 font-bold">⭐ PREMIUM</span>
+                    ) : (
+                      <span className="text-blue-400">👤 NORMAL</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                title="အကောင့်မှ ထွက်မည်"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">ထွက်မည်</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="px-3.5 py-2 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-bold transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2 cursor-pointer active:scale-95"
+            >
+              <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+              </svg>
+              <span className="hidden sm:inline">Google ဖြင့် အကောင့်ဝင်မည်</span>
+              <span className="sm:hidden">Login</span>
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Left Side Drawer Menu Overlay */}
@@ -1193,7 +1691,6 @@ export default function App() {
             <div className="flex items-center justify-between pb-4 border-b border-slate-800/80">
               <div>
                 <h2 className="text-xl font-black text-white tracking-wide">လင်းလင်းဇော်</h2>
-                <p className="text-[11px] text-slate-400">High Fidelity Burmese Speech Studio</p>
               </div>
               <button
                 type="button"
@@ -1204,6 +1701,76 @@ export default function App() {
               </button>
             </div>
 
+            {/* User Account Quick Card in Drawer */}
+            {userProfile ? (
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center gap-3">
+                  {userProfile.photoURL ? (
+                    <img src={userProfile.photoURL} className="w-10 h-10 rounded-xl object-cover border border-slate-700" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl bg-pink-600 flex items-center justify-center font-bold text-white">
+                      {userProfile.displayName?.[0] || userProfile.email?.[0] || 'U'}
+                    </div>
+                  )}
+                  <div className="overflow-hidden">
+                    <div className="text-sm font-bold text-white truncate">{userProfile.displayName || userProfile.email || 'User'}</div>
+                    <div className="text-[11px] text-slate-400 truncate">{userProfile.email || ''}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-xs">
+                  <div className="flex items-center gap-1.5 text-slate-400">
+                    <span>Account Role:</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (userProfile?.email) {
+                          try {
+                            const res = await fetch(`/api/users/me?email=${encodeURIComponent(userProfile.email.toLowerCase())}&uid=${userProfile.uid || ''}`);
+                            if (res.ok) {
+                              const d = await res.json();
+                              if (d && d.role) {
+                                const updated = { ...userProfile, role: d.role };
+                                setUserProfile(updated);
+                                localStorage.setItem("lin_zaw_tts_user_profile", JSON.stringify(updated));
+                              }
+                            }
+                          } catch (e) {}
+                        }
+                      }}
+                      title="Role အခြေအနေ အသစ်ပြန်စစ်မည်"
+                      className="p-1 hover:text-white text-slate-500 rounded transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {userProfile.role === 'admin' && <span className="font-bold text-red-400">🛡️ ADMIN</span>}
+                  {userProfile.role === 'premium' && (
+                    <div className="text-right">
+                      <span className="font-bold text-amber-300 block">⭐ PREMIUM VIP (၃၀,၀၀၀)</span>
+                      <span className="text-[10px] text-amber-400/90 font-mono font-bold block">
+                        ⏱️ ၁ လ VIP ({userProfile.premiumExpiresAt ? Math.max(0, Math.ceil((new Date(userProfile.premiumExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 30} ရက်ကျန်)
+                      </span>
+                    </div>
+                  )}
+                  {userProfile.role === 'normal' && <span className="font-bold text-blue-400">👤 NORMAL MEMBER (၅,၀၀၀)</span>}
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 text-center">
+                <p className="text-xs text-slate-400">အကောင့်မဝင်ရသေးပါ၊အသုံးပြုရန် Google အကောင့်ဝင်ပါ။</p>
+                <button
+                  onClick={() => {
+                    setIsDrawerOpen(false);
+                    setIsAuthModalOpen(true);
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <User className="w-4 h-4" /> Google ဖြင့် Sign in လုပ်မည်
+                </button>
+              </div>
+            )}
+
             {/* Menu Items */}
             <div className="space-y-2.5 flex-1 overflow-y-auto pr-1">
               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-2">Main Navigation</p>
@@ -1212,9 +1779,14 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
+                  setActiveTab("studio");
                   setIsDrawerOpen(false);
                 }}
-                className="w-full p-3.5 rounded-2xl flex items-center gap-3.5 transition-all text-sm font-bold cursor-pointer bg-gradient-to-r from-pink-600 to-violet-600 text-white shadow-lg shadow-pink-600/25 ring-1 ring-pink-400/30"
+                className={`w-full p-3.5 rounded-2xl flex items-center gap-3.5 transition-all text-sm font-bold cursor-pointer ${
+                  activeTab === "studio"
+                    ? "bg-gradient-to-r from-pink-600 to-violet-600 text-white shadow-lg shadow-pink-600/25 ring-1 ring-pink-400/30"
+                    : "bg-slate-950/80 hover:bg-slate-900 text-slate-200 border border-slate-800"
+                }`}
               >
                 <div className="w-8 h-8 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center shrink-0">
                   <Mic className="w-4.5 h-4.5" />
@@ -1225,11 +1797,144 @@ export default function App() {
                 </div>
                 <ChevronRight className="w-4 h-4 text-white/70" />
               </button>
+
+              {/* Option 2: Translate (Directly under Text to Speech) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("translate");
+                  setIsDrawerOpen(false);
+                }}
+                className={`w-full p-3.5 rounded-2xl flex items-center gap-3.5 transition-all text-sm font-bold cursor-pointer group relative overflow-hidden ${
+                  activeTab === "translate"
+                    ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25 ring-1 ring-amber-300"
+                    : "bg-slate-950/80 hover:bg-slate-900 text-slate-200 border border-slate-800"
+                }`}
+              >
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform ${
+                  activeTab === "translate" ? "bg-slate-950/30 text-slate-950" : "bg-cyan-500/20 text-cyan-400"
+                }`}>
+                  <Languages className="w-4.5 h-4.5" />
+                </div>
+                <div className="text-left flex-1">
+                  <div className={`text-sm font-bold flex items-center gap-2 ${activeTab === "translate" ? "text-slate-950" : "text-white"}`}>
+                    <span>Translate</span>
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
+                      activeTab === "translate"
+                        ? "bg-slate-950 text-amber-300 border-slate-950"
+                        : "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                    }`}>
+                      ✨ Gemini
+                    </span>
+                  </div>
+                  <div className={`text-[11px] font-normal ${activeTab === "translate" ? "text-slate-900" : "text-slate-400"}`}>
+                    ဇာတ်လမ်း မူရင်းအတိုင်း ဘာသာပြန်
+                  </div>
+                </div>
+                <ChevronRight className={`w-4 h-4 ${activeTab === "translate" ? "text-slate-950" : "text-slate-500 group-hover:text-white"}`} />
+              </button>
+
+              {/* Option 3: Setting */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDrawerOpen(false);
+                  setIsPlanModalOpen(true);
+                }}
+                className="w-full p-3.5 rounded-2xl flex items-center gap-3.5 transition-all text-sm font-bold cursor-pointer bg-slate-950 hover:bg-slate-900 text-slate-200 border border-slate-800 shadow-md group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                  <Settings className="w-4.5 h-4.5" />
+                </div>
+                <div className="text-left flex-1">
+                  <div className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Setting</span>
+                    <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 text-[10px] font-extrabold border border-amber-500/30">Plan ဝယ်မည်</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-normal">အကောင့် ဆက်တင်များ & Premium Plan</div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+              </button>
+
+              {/* Option 4: Admin Dashboard (Only visible when logged in as Admin) */}
+              {(userProfile?.role === 'admin' || userProfile?.email?.toLowerCase().trim() === 'nwe98698@gmail.com') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDrawerOpen(false);
+                    setIsDashboardOpen(true);
+                  }}
+                  className="w-full p-3.5 rounded-2xl flex items-center gap-3.5 transition-all text-sm font-bold cursor-pointer bg-slate-950/80 hover:bg-slate-900 text-slate-200 border border-slate-800 shadow-md group"
+                >
+                  <div className="w-8 h-8 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                    <Shield className="w-4.5 h-4.5" />
+                  </div>
+                  <div className="text-left flex-1">
+                    <div className="text-sm font-bold text-white flex items-center gap-2">
+                      <span>Admin Dashboard</span>
+                      <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[10px] font-extrabold border border-red-500/30">
+                        🛡️ Admin
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-normal">Admin Control Panel</div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                </button>
+              )}
             </div>
 
             {/* Drawer Footer */}
-            <div className="pt-4 border-t border-slate-800/80 text-[11px] text-slate-500 text-center">
-              <span>လင်းလင်းဇော် TTS Pro v2.5</span>
+            <div className="pt-4 border-t border-slate-800/80 space-y-3">
+              {/* Telegram Channel & Group Join Buttons */}
+              <div className="space-y-2">
+                {/* 1. အကူအညီယူရန် ချယ်နယ် */}
+                <a
+                  href="https://t.me/linlinzawofficial"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 px-3 rounded-xl bg-[#229ED9]/15 hover:bg-[#229ED9]/25 border border-[#229ED9]/30 text-slate-200 hover:text-white text-xs font-bold flex items-center justify-between transition-all group shadow-sm cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Send className="w-4 h-4 text-[#229ED9] group-hover:scale-110 transition-transform" />
+                    <span>အကူအညီယူရန် ချယ်နယ်</span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-lg bg-[#229ED9] text-white text-[10px] font-extrabold group-hover:bg-[#1f8fc4] transition-colors">
+                    Join
+                  </span>
+                </a>
+
+                {/* 2. အကူအညီယူရန် ဂရု */}
+                <a
+                  href="https://t.me/buemeserecapview"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 px-3 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-slate-200 hover:text-white text-xs font-bold flex items-center justify-between transition-all group shadow-sm cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
+                    <span>အကူအညီယူရန် ဂရု</span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-lg bg-cyan-600 text-white text-[10px] font-extrabold group-hover:bg-cyan-500 transition-colors">
+                    Join
+                  </span>
+                </a>
+              </div>
+
+              {/* Version & Logout (Under Join Buttons) */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-[11px] text-slate-500">
+                <span className="font-semibold text-slate-400">လင်းလင်းဇော် TTS Pro v2.5</span>
+                {userProfile && (
+                  <button
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      handleLogout();
+                    }}
+                    className="text-red-400 hover:text-red-300 font-bold flex items-center gap-1 cursor-pointer p-1 rounded hover:bg-slate-900 transition-colors"
+                  >
+                    <LogOut className="w-3.5 h-3.5" /> ထွက်မည်
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1242,13 +1947,6 @@ export default function App() {
           <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-emerald-400 animate-bounce">
             <CheckCircle2 className="w-5 h-5" />
             <span className="text-sm font-medium">{downloadSuccessToast}</span>
-          </div>
-        )}
-
-        {statusMessage && (
-          <div className="bg-pink-500/10 border border-pink-500/30 text-pink-300 px-4 py-3 rounded-xl text-xs flex items-center gap-2">
-            <RefreshCw className="w-4 h-4 animate-spin text-pink-400" />
-            <span>{statusMessage}</span>
           </div>
         )}
 
@@ -1266,8 +1964,16 @@ export default function App() {
                     <FileText className="w-4 h-4 text-pink-500" />
                     အသံထွက်ဖတ်ကြားမည့် မြန်မာစာသားများ ရိုက်ထည့်ပါ
                   </label>
-                  <span className="text-xs text-slate-500">
-                    {text.length} စာလုံးရေ
+                  <span className={`text-xs font-mono font-bold px-2.5 py-1 rounded-xl border flex items-center gap-0.5 ${
+                    text.length > maxCharLimit
+                      ? "bg-red-500/20 text-red-400 border-red-500/40 animate-pulse"
+                      : text.length > 0
+                      ? "bg-pink-500/10 text-pink-300 border-pink-500/30"
+                      : "bg-slate-950 text-slate-400 border-slate-800"
+                  }`}>
+                    <span>{text.length}</span>
+                    <span className="text-slate-500">/</span>
+                    <span>{maxCharLimit === Infinity ? "Unlimited" : maxCharLimit}</span>
                   </span>
                 </div>
 
@@ -1275,7 +1981,15 @@ export default function App() {
                   <textarea
                     rows={7}
                     value={text}
-                    onChange={(e) => setText(e.target.value)}
+                    maxLength={maxCharLimit === Infinity ? undefined : maxCharLimit}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (maxCharLimit !== Infinity && val.length > maxCharLimit) {
+                        setText(val.slice(0, maxCharLimit));
+                      } else {
+                        setText(val);
+                      }
+                    }}
                     placeholder="ဤနေရာတွင် အသံပြောင်းလိုသော မြန်မာစာသားများကို ရိုက်ထည့်ပါ သို့မဟုတ် ကူးယူထည့်သွင်းပါ..."
                     className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl p-4 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-pink-500/60 focus:ring-1 focus:ring-pink-500/40 transition-all font-sans leading-relaxed resize-y"
                   />
@@ -1298,6 +2012,38 @@ export default function App() {
                       <Copy className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                </div>
+
+                {/* Quota information pill */}
+                <div className="flex items-center justify-between text-xs px-1">
+                  <div className="flex items-center gap-1.5 text-slate-400">
+                    {!userProfile ? (
+                      <span className="text-amber-400 font-semibold flex items-center gap-1">
+                        💡 Google Login မဝင်ထားပါ (တစ်ကြိမ်လျှင် စာသား ၃,၀၀၀ လုံးအထိ)
+                      </span>
+                    ) : (userProfile.role === 'admin' || userProfile.email.toLowerCase() === 'nwe98698@gmail.com') ? (
+                      <span className="text-red-400 font-bold flex items-center gap-1">
+                        🛡️ Admin Account (စာလုံး အရေအတွက် အကန့်အသတ်မရှိ)
+                      </span>
+                    ) : userProfile.role === 'premium' ? (
+                      <span className="text-amber-300 font-bold flex items-center gap-1">
+                        ⭐ Premium VIP Member (တစ်ကြိမ်လျှင် စာသား ၃၀,၀၀၀ လုံးအထိ)
+                      </span>
+                    ) : (
+                      <span className="text-blue-400 font-semibold flex items-center gap-1">
+                        👤 Normal Member (တစ်ကြိမ်လျှင် စာသား ၅,၀၀၀ လုံးအထိ)
+                      </span>
+                    )}
+                  </div>
+                  {!userProfile && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAuthModalOpen(true)}
+                      className="text-pink-400 hover:text-pink-300 text-[11px] font-bold underline cursor-pointer"
+                    >
+                      အကောင့်ဝင်ရန်
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1687,6 +2433,242 @@ export default function App() {
           </div>
         )}
 
+        {/* Tab 2: Gemini 2 Flash Drama & Script Translator (Matching IMG_0186.jpeg & IMG_0187.jpeg) */}
+        {activeTab === "translate" && (
+          <div className="max-w-3xl mx-auto space-y-6 animate-fadeIn pb-16">
+            
+            {/* 1. Input Box Container (IMG_0186.jpeg) */}
+            <div className="bg-[#0b1220] border border-slate-800/90 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-left">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" /> SCRIPT TRANSLATOR:
+                </label>
+              </div>
+
+              {/* Textarea matching IMG_0186.jpeg */}
+              <div className="p-4 rounded-2xl bg-[#070c16] border border-slate-800/80 focus-within:border-amber-500/60 transition-colors space-y-2">
+                <textarea
+                  value={translateSourceText}
+                  onChange={(e) => {
+                    const limit = getMaxCharLimit(userProfile);
+                    if (limit !== Infinity && e.target.value.length > limit) {
+                      setTranslateSourceText(e.target.value.slice(0, limit));
+                    } else {
+                      setTranslateSourceText(e.target.value);
+                    }
+                  }}
+                  placeholder="Paste your drama script, English/Chinese lines, or transcript here..."
+                  rows={6}
+                  className="w-full bg-transparent text-slate-100 placeholder:text-slate-500 text-sm sm:text-base leading-relaxed resize-none focus:outline-none focus:ring-0 border-none font-sans"
+                />
+
+                {/* Character Limit Row matching IMG_0186.jpeg */}
+                <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-xs text-slate-400">
+                  <div className="flex items-center gap-1.5 flex-wrap font-medium">
+                    <span>
+                      Max {getMaxCharLimit(userProfile) === Infinity ? "Unlimited" : `${getMaxCharLimit(userProfile).toLocaleString()} characters`} per translation
+                    </span>
+                    {!userProfile && (
+                      <span className="text-amber-400 text-[10px] font-semibold">(Login မဝင်ပါက 3,000 စာလုံး)</span>
+                    )}
+                    {userProfile && userProfile.role === 'normal' && (
+                      <span className="text-blue-400 text-[10px] font-semibold">(Normal Member: 5,000 စာလုံး)</span>
+                    )}
+                    {userProfile && userProfile.role === 'premium' && (
+                      <span className="text-amber-300 text-[10px] font-bold">(⭐ Premium VIP: 30,000 စာလုံး)</span>
+                    )}
+                    {(userProfile?.role === 'admin' || userProfile?.email?.toLowerCase().trim() === 'nwe98698@gmail.com') && (
+                      <span className="text-red-400 text-[10px] font-bold">(🛡️ Admin: Unlimited)</span>
+                    )}
+                  </div>
+                  <span className="font-mono font-bold text-slate-300 shrink-0">
+                    {translateSourceText.length.toLocaleString()} / {getMaxCharLimit(userProfile) === Infinity ? "∞" : getMaxCharLimit(userProfile).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Translate Button matching IMG_0187.jpeg */}
+              <button
+                type="button"
+                onClick={handleTranslate}
+                disabled={isTranslating || !translateSourceText.trim()}
+                className="w-full py-3.5 sm:py-4 rounded-2xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:hover:bg-amber-500 text-slate-950 font-black text-sm sm:text-base shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer active:scale-98"
+              >
+                {isTranslating ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin text-slate-950" />
+                    <span>ဘာသာပြန်နေပါသည်</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-5 h-5 fill-slate-950" />
+                    <span>Translate to Burmese</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* 2. Translated Voiceover Output (Matching IMG_0187.jpeg & Fixed Height Scrollable Box) */}
+            <div className="bg-[#0b1220] border border-slate-800/90 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-left">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  Translated Voiceover Output:
+                </h3>
+                {translateResultText && (
+                  <span className="text-xs font-mono text-slate-400">
+                    {translateResultText.length.toLocaleString()} characters
+                  </span>
+                )}
+              </div>
+
+              {/* Output Content Container */}
+              <div className="rounded-2xl bg-[#070c16] border border-slate-800/80 p-4 sm:p-5 flex flex-col space-y-4">
+                {!translateResultText ? (
+                  /* Empty State matching IMG_0187.jpeg */
+                  <div className="py-10 flex flex-col items-center justify-center text-center space-y-2">
+                    <Languages className="w-10 h-10 text-slate-600 mb-1 stroke-1" />
+                    <p className="text-sm font-semibold text-slate-300">
+                      Translated Burmese output will appear here
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Enter text and click Translate
+                    </p>
+                  </div>
+                ) : (
+                  /* Fixed Height Scrollable Output Box (စာသား Box အသေ) */
+                  <>
+                    <div className="max-h-[300px] sm:max-h-[360px] overflow-y-auto custom-scrollbar p-4 rounded-xl bg-[#040810] border border-slate-800/90 text-slate-100 selection:bg-amber-500 selection:text-slate-950 shadow-inner">
+                      <p className="text-sm sm:text-base font-sans leading-relaxed whitespace-pre-wrap select-text">
+                        {translateResultText}
+                      </p>
+                    </div>
+
+                    {/* Quick Actions Row */}
+                    <div className="flex items-center justify-between pt-3 border-t border-slate-800/70 flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(translateResultText, "ဘာသာပြန်စာသားကို ကူးယူပြီးပါပြီ။")}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Copy စာသားကူးယူမည်</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSendToTTS(translateResultText)}
+                          className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                        >
+                          <Mic className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>TTS စတူဒီယိုသို့ ပို့မည်</span>
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTranslateSourceText("");
+                          setTranslateResultText("");
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl text-slate-500 hover:text-slate-300 hover:bg-slate-800 text-xs font-medium transition-all cursor-pointer"
+                      >
+                        ✕ Clear အသစ်ရေးမည်
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Recent Translation History Section (Matching IMG_0187.jpeg) */}
+            <div id="translation-history-section" className="bg-[#0b1220] border border-slate-800/90 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-left">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm sm:text-base font-bold text-amber-400 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-amber-400" />
+                  Recent Translation History <span className="text-slate-400 font-mono text-xs">({translationHistory.length})</span>
+                </h3>
+
+                {translationHistory.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearTranslationHistory}
+                    className="px-2.5 py-1 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/10 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clear All</span>
+                  </button>
+                )}
+              </div>
+
+              {translationHistory.length === 0 ? (
+                <div className="p-8 rounded-2xl bg-[#070c16] border border-slate-800/60 text-center space-y-2">
+                  <Clock className="w-8 h-8 text-slate-600 mx-auto" />
+                  <p className="text-xs text-slate-400 font-medium">ဘာသာပြန်မှတ်တမ်း မရှိသေးပါ။</p>
+                  <p className="text-[11px] text-slate-600">ဘာသာပြန်ထားသော စာသားများကို ဤနေရာတွင် အလွယ်တကူ ပြန်လည် Recall/Copy/TTS ပြုလုပ်နိုင်ပါသည်။</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {translationHistory.map((item) => (
+                    <div
+                      key={item.id}
+                      className="bg-[#070c16] border border-slate-800/90 rounded-2xl p-4 space-y-3 hover:border-slate-700 transition-all text-left shadow-md group"
+                    >
+                      {/* Top Header Row matching IMG_0187.jpeg: Date & Time, Chars count */}
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-slate-400 font-medium">{item.timestamp}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 font-semibold">{item.charCount} chars</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTranslationItem(item.id)}
+                            className="text-slate-600 hover:text-red-400 p-1 rounded transition-colors cursor-pointer"
+                            title="မှတ်တမ်းမှ ဖျက်မည်"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Snippet matching IMG_0187.jpeg */}
+                      <p className="text-xs sm:text-sm text-slate-200 font-sans leading-relaxed line-clamp-3">
+                        {item.translatedText}
+                      </p>
+
+                      {/* Action Buttons matching IMG_0187.jpeg: [ Recall ] [ Copy ] [ TTS ] */}
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/60">
+                        <button
+                          type="button"
+                          onClick={() => handleRecallTranslation(item)}
+                          className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition-all cursor-pointer active:scale-95 flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3 h-3" /> Recall
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(item.translatedText, "စာသားကို ကူးယူပြီးပါပြီ။")}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer active:scale-95 flex items-center gap-1"
+                        >
+                          <Copy className="w-3 h-3" /> Copy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSendToTTS(item.translatedText)}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition-all cursor-pointer active:scale-95 flex items-center gap-1"
+                        >
+                          <Mic className="w-3 h-3" /> TTS
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
         {/* Tab: Settings */}
         {activeTab === "settings" && (
           <div className="max-w-2xl mx-auto space-y-6">
@@ -1913,6 +2895,259 @@ export default function App() {
         </div>
       )}
 
+      {/* Setting / Plan Modal matching IMG_0149.jpeg & IMG_0150.jpeg */}
+      {isPlanModalOpen && (
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0b1220] border border-slate-800 rounded-3xl max-w-sm w-full p-5 sm:p-6 text-center space-y-4 shadow-2xl relative animate-scaleUp max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={() => {
+                setIsPlanModalOpen(false);
+                setPlanSuccessNotice(null);
+                setPlanStep('info');
+                setPaymentSlipBase64('');
+              }}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800/80 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold">
+                <Crown className="w-3.5 h-3.5 text-amber-400" /> Setting & Plan ဝယ်မည်
+              </div>
+              <h2 className="text-xl font-black text-white">
+                {planStep === 'info' ? 'အကောင့် Plan မြှင့်တင်ရန်' : 'Wave Money ဖြင့် ငွေလွှဲရန်'}
+              </h2>
+            </div>
+
+            {planSuccessNotice && (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 p-3.5 rounded-2xl text-left text-xs text-emerald-300 flex items-start gap-2">
+                <CheckCircle2 className="w-4.5 h-4.5 text-emerald-400 shrink-0 mt-0.5" />
+                <span>{planSuccessNotice}</span>
+              </div>
+            )}
+
+            {/* Step 1: Pricing Card matching IMG_0149.jpeg */}
+            {planStep === 'info' && (
+              <div className="bg-white rounded-3xl p-6 text-slate-900 shadow-2xl space-y-5 text-left relative overflow-hidden border border-slate-200">
+                <div className="space-y-1">
+                  <div className="text-xs font-extrabold tracking-wider text-slate-400 uppercase font-mono">
+                    1. PREMIUM MEMBER
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-black text-slate-900 tracking-tight font-mono">15,000</span>
+                    <span className="text-xs font-bold text-slate-500">MMK / လ</span>
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-2 text-xs sm:text-sm font-semibold text-slate-800 border-t border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 font-bold text-xs">
+                      ✓
+                    </div>
+                    <span>Text To Speech စာလုံး 30000</span>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 font-bold text-xs">
+                      ✓
+                    </div>
+                    <span className="flex items-center gap-1.5 flex-wrap">
+                      <span>Translate စာလုံး 10000</span>
+                      <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md font-bold">
+                        မကြာခင်လာမည်
+                      </span>
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleBuyPlanClick}
+                  className="w-full py-3.5 px-4 rounded-2xl border-2 border-slate-300 hover:border-slate-900 bg-white hover:bg-slate-900 text-slate-900 hover:text-white font-bold text-sm transition-all cursor-pointer shadow-sm active:scale-95 text-center flex items-center justify-center gap-2"
+                >
+                  <span>Plan ဝယ်မည်</span>
+                </button>
+
+                {userProfile && userProfile.role === 'premium' && (
+                  <div className="p-2 rounded-xl bg-amber-50 text-amber-800 text-[11px] font-bold text-center border border-amber-200">
+                    ⭐ လက်ရှိအကောင့်သည် Premium VIP အဖြစ် အသက်ဝင်နေပြီးဖြစ်ပါသည်။
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 2: Wave Money QR Code & Payment Proof Upload matching IMG_0150.jpeg */}
+            {planStep === 'payment' && (
+              <div className="space-y-4 text-left">
+                {/* Wave Money Info Box */}
+                <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                      Wave Money Account
+                    </div>
+                    <span className="text-[10px] bg-amber-400 text-slate-950 font-black px-2 py-0.5 rounded-md">
+                      15,000 MMK
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1 text-xs">
+                    <div className="flex items-center justify-between text-slate-200">
+                      <span className="text-slate-400">Name:</span>
+                      <span className="font-extrabold text-white text-sm">Thet Tun</span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-slate-200">
+                      <span className="text-slate-400">Ph:</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-black text-amber-300 text-sm">09779710273</span>
+                        <button
+                          type="button"
+                          onClick={handleCopyPhone}
+                          className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>copy ကူး</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {copiedPhoneToast && (
+                      <div className="text-[11px] text-emerald-400 font-bold text-right pt-0.5 flex items-center justify-end gap-1">
+                        <Check className="w-3 h-3" />
+                        <span>09779710273 ကို Copy ကူးပြီးပါပြီ!</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* QR Code Section */}
+                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-2.5">
+                  <div className="text-xs font-bold text-slate-200">
+                    Wave Money Qr Code ဖတ်နိုင်ပါတယ်
+                  </div>
+
+                  <div className="p-3 bg-[#FEE000] rounded-2xl inline-block shadow-lg mx-auto border border-amber-300">
+                    <img 
+                      src="/wave_qr.svg" 
+                      alt="Wave Money QR Code" 
+                      className="w-44 h-44 rounded-xl object-contain mx-auto shadow-inner bg-white p-2" 
+                    />
+                  </div>
+                </div>
+
+                {/* Payment Slip Upload Box */}
+                <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-3">
+                  <div className="text-xs font-bold text-slate-200 flex items-center justify-between">
+                    <span>ငွေလွှဲထားသော ပြေစာ (Slip) ပုံ တင်ပေးပါ:</span>
+                  </div>
+
+                  {paymentSlipBase64 ? (
+                    <div className="space-y-2">
+                      <div className="relative rounded-2xl overflow-hidden border border-slate-700 bg-slate-900 max-h-48 flex items-center justify-center p-2">
+                        <img src={paymentSlipBase64} alt="Payment Slip" className="max-h-40 object-contain rounded-xl" />
+                        <button
+                          type="button"
+                          onClick={() => setPaymentSlipBase64('')}
+                          className="absolute top-2 right-2 p-1.5 rounded-full bg-slate-950/80 text-white hover:text-red-400 transition-colors cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> ငွေလွှဲပြေစာ ပုံ ရွေးချယ်ပြီးပါပြီ
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="border-2 border-dashed border-slate-800 hover:border-pink-500/60 p-4 rounded-2xl text-center flex flex-col items-center justify-center gap-2 cursor-pointer transition-all bg-slate-900/50 hover:bg-slate-900">
+                      <Upload className="w-6 h-6 text-pink-400" />
+                      <span className="text-xs font-bold text-slate-300">ငွေလွှဲပြေစာ (Slip) ဓာတ်ပုံ ရွေးရန် နှိပ်ပါ</span>
+                      <span className="text-[10px] text-slate-500">JPG, PNG (Max 5MB)</span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleSlipFileChange} 
+                        className="hidden" 
+                      />
+                    </label>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleSubmitPaymentProof}
+                    disabled={isSubmittingPlan || !paymentSlipBase64}
+                    className={`w-full py-3.5 px-4 rounded-2xl font-bold text-xs shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      paymentSlipBase64 
+                        ? 'bg-gradient-to-r from-pink-600 via-rose-600 to-violet-600 text-white shadow-pink-600/20 hover:from-pink-500 hover:to-violet-500 active:scale-95' 
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {isSubmittingPlan ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>ငွေလွှဲပြေစာ ပေးပို့မည်</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setPlanStep('info')}
+                    className="text-xs text-slate-400 hover:text-white font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    ← နောက်သို့ ပြန်သွားမည်
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sign-In Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onGoogleSuccess={(profile) => {
+          saveUserProfile(profile);
+          setIsAuthModalOpen(false);
+        }}
+        onGooglePopupLogin={async () => {
+          const res = await loginWithGoogle();
+          if (res.user) {
+            saveUserProfile(res.user);
+            setIsAuthModalOpen(false);
+          } else if (res.error) {
+            setAuthNotice(res.error);
+          }
+        }}
+        authNotice={authNotice}
+      />
+
+      {/* User Dashboard Modal (Only for Admin) */}
+      {isDashboardOpen && (userProfile?.role === 'admin' || userProfile?.email?.toLowerCase().trim() === 'nwe98698@gmail.com') && (
+        <UserDashboard
+          userProfile={userProfile}
+          onLogin={handleGoogleLogin}
+          onGoogleSuccess={(profile) => {
+            saveUserProfile(profile);
+            setIsDashboardOpen(true);
+          }}
+          onEmailLogin={handleEmailLogin}
+          onSelectDemoRole={handleSelectDemoRole}
+          onLogout={() => {
+            handleLogout();
+            setIsDashboardOpen(false);
+          }}
+          onClose={() => setIsDashboardOpen(false)}
+          authNotice={authNotice}
+        />
+      )}
+
       {/* Hidden Audio for History Playback */}
       <audio
         ref={historyAudioRef}
@@ -1920,6 +3155,43 @@ export default function App() {
         onError={() => setHistoryPlayingId(null)}
         className="hidden"
       />
+
+      {/* Translate Coming Soon Modal */}
+      {isTranslateNoticeOpen && (
+        <div className="fixed inset-0 z-[10001] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0b1220] border border-cyan-500/30 rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl relative animate-scaleUp">
+            <button
+              type="button"
+              onClick={() => setIsTranslateNoticeOpen(false)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800/80 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center justify-center mx-auto shadow-inner">
+              <Globe className="w-8 h-8 animate-pulse text-cyan-300" />
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold font-sans">
+                မကြာခင်လာမည်
+              </span>
+              <h3 className="text-lg font-black text-white pt-2">Translate Feature</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                ဘာသာစကားမျိုးစုံ ဘာသာပြန်စနစ်ကို <span className="font-bold text-amber-300">မကြာခင်လာမည်</span> ဖြစ်ပါသည်။ မကြာမီ အချိန်အတွင်း စတင်အသုံးပြုနိုင်ပါမည်။
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsTranslateNoticeOpen(false)}
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs transition-all cursor-pointer shadow-lg shadow-cyan-600/20 active:scale-95"
+            >
+              နားလည်ပါပြီ
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

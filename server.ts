@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { spawn } from "child_process";
 import { GoogleGenAI } from "@google/genai";
@@ -8,20 +9,47 @@ import { Communicate } from "edge-tts-universal";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const DATA_DIR = path.resolve(__dirname, "data");
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+const UPGRADE_REQS_FILE = path.join(DATA_DIR, "upgrade_requests.json");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
+
+function loadJsonSafe<T>(filePath: string, fallback: T): T {
+  try {
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    }
+  } catch (e) {
+    console.error(`Error reading ${filePath}:`, e);
+  }
+  return fallback;
+}
+
+function saveJsonSafe(filePath: string, data: any) {
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  } catch (e) {
+    console.error(`Error writing ${filePath}:`, e);
+  }
+}
+
 // Microsoft Edge TTS Voice Profiles
 const EDGE_VOICE_MAP: Record<string, { voice: string; defaultRate: number; defaultPitch: number }> = {
-  thiha: { voice: "my-MM-ThihaNeural", defaultRate: 0, defaultPitch: 0 },       // သီဟ - Original Microsoft Edge Thiha Neural MALE
-  nilar: { voice: "my-MM-NilarNeural", defaultRate: 0, defaultPitch: 0 },       // နီလာ - Original Microsoft Edge Nilar Neural FEMALE
-  mgkyawthu: { voice: "it-IT-GiuseppeMultilingualNeural", defaultRate: 30, defaultPitch: 2 }, // မောင်ကျော်သူ (Giuseppe Fast Vibe ⚡ - Speed 1.3)
-  mgthuta: { voice: "fr-FR-RemyMultilingualNeural", defaultRate: 30, defaultPitch: 0 },       // မောင်သုတ (Remy Fast Reviewer ⚡ - Speed 1.3)
-  masumyatt: { voice: "en-US-AvaMultilingualNeural", defaultRate: 30, defaultPitch: 0 },      // မဆုမြတ် (Ava Fast Narrator ⚡ - Speed 1.3)
-  koaungkyaw: { voice: "en-US-BrianMultilingualNeural", defaultRate: 60, defaultPitch: 0 },   // ကိုအောင်ကျော် (Brian Hyper Epic ⚡ - Speed 1.6)
-  saicsai: { voice: "my-MM-ThihaNeural", defaultRate: 6, defaultPitch: 2 },    // ကိုစိုင်းစိုင်း - MALE
-  mafoofoo: { voice: "my-MM-NilarNeural", defaultRate: -3, defaultPitch: 4 },  // မဖူးဖူး - FEMALE
-  koneye: { voice: "my-MM-ThihaNeural", defaultRate: -2, defaultPitch: -5 },   // ကိုနေတိုး - MALE
-  kqaung: { voice: "my-MM-ThihaNeural", defaultRate: 3, defaultPitch: -2 },    // ကိုအောင်ရဲလင်း - MALE
-  komyint: { voice: "my-MM-ThihaNeural", defaultRate: 4, defaultPitch: -4 },   // ကိုမြင့်မြတ် - MALE
-  mawathsu: { voice: "my-MM-NilarNeural", defaultRate: -2, defaultPitch: 2 },  // မဝတ်မှုံရွှေရည် - FEMALE
+  thiha: { voice: "my-MM-ThihaNeural", defaultRate: 0, defaultPitch: 0 },        // သီဟ - မူရင်း သဘာဝ အမျိုးသားအသံ (Thiha Male)
+  nilar: { voice: "my-MM-NilarNeural", defaultRate: 0, defaultPitch: 0 },        // နီလာ - မူရင်း ချိုသာ အမျိုးသမီးအသံ (Nilar Female)
+  mgkyawthu: { voice: "it-IT-GiuseppeMultilingualNeural", defaultRate: 30, defaultPitch: 10 }, // မောင်ကျော်သူ (Giuseppe Fast Vibe ⚡ - Speed 1.3)
+  mgthuta: { voice: "fr-FR-RemyMultilingualNeural", defaultRate: 30, defaultPitch: 10 },       // မောင်သုတ (Remy Fast Reviewer ⚡ - Speed 1.3)
+  masumyatt: { voice: "en-US-AvaMultilingualNeural", defaultRate: 30, defaultPitch: 10 },      // မဆုမြတ် (Ava Fast Narrator ⚡ - Speed 1.3)
+  koaungkyaw: { voice: "en-US-BrianMultilingualNeural", defaultRate: 60, defaultPitch: 10 },   // ကိုအောင်ကျော် (Brian Hyper Epic ⚡ - Speed 1.6)
+  saicsai: { voice: "my-MM-ThihaNeural", defaultRate: 6, defaultPitch: 2 },      // ကိုစိုင်းစိုင်း - MALE
+  mafoofoo: { voice: "my-MM-NilarNeural", defaultRate: -3, defaultPitch: 4 },    // မဖူးဖူး - FEMALE
+  koneye: { voice: "my-MM-ThihaNeural", defaultRate: -2, defaultPitch: -5 },     // ကိုနေတိုး - MALE
+  kqaung: { voice: "my-MM-ThihaNeural", defaultRate: 3, defaultPitch: -2 },      // ကိုအောင်ရဲလင်း - MALE
+  komyint: { voice: "my-MM-ThihaNeural", defaultRate: 4, defaultPitch: -4 },     // ကိုမြင့်မြတ် - MALE
+  mawathsu: { voice: "my-MM-NilarNeural", defaultRate: -2, defaultPitch: 2 },    // မဝတ်မှုံရွှေရည် - FEMALE
 };
 
 interface WordBoundaryItem {
@@ -56,33 +84,58 @@ function formatSrtTimestamp(ms: number): string {
   );
 }
 
-function getMp3ExactDurationMs(buf: Buffer): Promise<number> {
-  return new Promise((resolve) => {
+// Decode MP3 audio buffer into raw 24kHz 16-bit Mono PCM
+function decodeMp3ToPcm24k(mp3Buf: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
     const ff = spawn("ffmpeg", [
       "-f", "mp3",
       "-i", "pipe:0",
-      "-f", "null",
-      "-"
+      "-f", "s16le",
+      "-ar", "24000",
+      "-ac", "1",
+      "pipe:1"
     ]);
-    let stderr = "";
-    ff.stderr.on("data", (d) => {
-      stderr += d.toString();
-    });
-    ff.on("close", () => {
-      const matches = [...stderr.matchAll(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2,3})/g)];
-      if (matches.length > 0) {
-        const last = matches[matches.length - 1];
-        const h = parseInt(last[1], 10);
-        const m = parseInt(last[2], 10);
-        const s = parseInt(last[3], 10);
-        const ms = parseInt((last[4] || "0").padEnd(3, "0").slice(0, 3), 10);
-        resolve(h * 3600000 + m * 60000 + s * 1000 + ms);
+    const bufs: Buffer[] = [];
+    ff.stdout.on("data", (d) => bufs.push(d));
+    ff.stderr.on("data", () => {});
+    ff.on("close", (code) => {
+      if (code === 0 && bufs.length > 0) {
+        resolve(Buffer.concat(bufs));
       } else {
-        resolve(0);
+        reject(new Error(`FFmpeg decode failed with code ${code}`));
       }
     });
-    ff.on("error", () => resolve(0));
-    ff.stdin.write(buf);
+    ff.on("error", (err) => reject(err));
+    ff.stdin.write(mp3Buf);
+    ff.stdin.end();
+  });
+}
+
+// Encode raw 24kHz 16-bit Mono PCM buffer into clean, high-fidelity MP3 in a single pass
+function encodePcmToMp3(pcmBuf: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const ff = spawn("ffmpeg", [
+      "-f", "s16le",
+      "-ar", "24000",
+      "-ac", "1",
+      "-i", "pipe:0",
+      "-c:a", "libmp3lame",
+      "-b:a", "128k",
+      "-f", "mp3",
+      "pipe:1"
+    ]);
+    const bufs: Buffer[] = [];
+    ff.stdout.on("data", (d) => bufs.push(d));
+    ff.stderr.on("data", () => {});
+    ff.on("close", (code) => {
+      if (code === 0 && bufs.length > 0) {
+        resolve(Buffer.concat(bufs));
+      } else {
+        reject(new Error(`FFmpeg encode failed with code ${code}`));
+      }
+    });
+    ff.on("error", (err) => reject(err));
+    ff.stdin.write(pcmBuf);
     ff.stdin.end();
   });
 }
@@ -324,139 +377,191 @@ function generateSrtFromBoundaries(
   };
 }
 
+// Intelligent Burmese sentence & phrase chunker for up to 30,000+ characters
+function splitBurmeseTextIntoChunks(text: string, maxChars: number = 750): string[] {
+  const clean = text.trim();
+  if (!clean) return [];
+  if (clean.length <= maxChars) return [clean];
+
+  const paragraphs = clean.split(/\n+/);
+  const chunks: string[] = [];
+  let currentChunk = "";
+
+  for (const para of paragraphs) {
+    const trimmedPara = para.trim();
+    if (!trimmedPara) continue;
+
+    if ((currentChunk + " " + trimmedPara).trim().length <= maxChars) {
+      currentChunk = currentChunk ? currentChunk + "\n" + trimmedPara : trimmedPara;
+    } else {
+      // Split by Burmese sentence endings (။, ., ?, !)
+      const sentences = trimmedPara.split(/(?<=[။\.\?!])/);
+      for (const sent of sentences) {
+        const s = sent.trim();
+        if (!s) continue;
+        if ((currentChunk + " " + s).trim().length <= maxChars) {
+          currentChunk = currentChunk ? currentChunk + " " + s : s;
+        } else {
+          if (currentChunk) {
+            chunks.push(currentChunk.trim());
+            currentChunk = "";
+          }
+          if (s.length <= maxChars) {
+            currentChunk = s;
+          } else {
+            // Split by secondary clause delimiters (၊, comma, semicolon)
+            const clauses = s.split(/(?<=[၊,;])/);
+            for (const clause of clauses) {
+              const c = clause.trim();
+              if (!c) continue;
+              if ((currentChunk + " " + c).trim().length <= maxChars) {
+                currentChunk = currentChunk ? currentChunk + " " + c : c;
+              } else {
+                if (currentChunk) {
+                  chunks.push(currentChunk.trim());
+                  currentChunk = "";
+                }
+                if (c.length <= maxChars) {
+                  currentChunk = c;
+                } else {
+                  // Hard slice by space or safe character boundary
+                  let rem = c;
+                  while (rem.length > 0) {
+                    if (rem.length <= maxChars) {
+                      currentChunk = rem;
+                      break;
+                    }
+                    let cutIdx = rem.lastIndexOf(" ", maxChars);
+                    if (cutIdx <= maxChars * 0.4) {
+                      cutIdx = maxChars;
+                    }
+                    chunks.push(rem.slice(0, cutIdx).trim());
+                    rem = rem.slice(cutIdx).trim();
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+
+  return chunks.filter((c) => c.length > 0);
+}
+
+// Synthesize a single chunk with Microsoft Edge TTS and decode directly to 24kHz 16-bit Mono PCM
+async function synthesizeSingleChunkEdge(
+  chunkText: string,
+  voiceName: string,
+  rateStr: string,
+  pitchStr: string
+): Promise<{ pcmBuf: Buffer; boundaries: WordBoundaryItem[] }> {
+  const comm = new Communicate(chunkText.trim(), {
+    voice: voiceName,
+    rate: rateStr,
+    pitch: pitchStr,
+  });
+
+  const audioChunks: Buffer[] = [];
+  const boundaries: WordBoundaryItem[] = [];
+
+  for await (const chunk of comm.stream()) {
+    if (chunk.type === "audio" && chunk.data) {
+      audioChunks.push(Buffer.from(chunk.data));
+    } else if (chunk.type === "WordBoundary") {
+      boundaries.push({
+        offset: (chunk as any).offset || 0,
+        duration: (chunk as any).duration || 0,
+        text: (chunk as any).text || "",
+      });
+    }
+  }
+
+  const mp3Buf = Buffer.concat(audioChunks);
+  if (!mp3Buf || mp3Buf.length === 0) {
+    throw new Error("Empty audio received from Edge TTS chunk");
+  }
+
+  const pcmBuf = await decodeMp3ToPcm24k(mp3Buf);
+  return { pcmBuf, boundaries };
+}
+
 // Generate authentic speech & exact word boundary cues using Microsoft Edge TTS
-// Supports unlimited text length (including 5000+ characters) via smooth chunking & exact audio duration synchronization
+// Supports up to 30,000+ characters with 100% microsecond-exact audio and SRT synchronization
 async function generateEdgeTtsAudioWithBoundaries(
   text: string,
   voiceName: string = "my-MM-ThihaNeural",
   rateStr: string = "+0%",
   pitchStr: string = "+0Hz"
 ): Promise<{ audioBuffer: Buffer; wordBoundaries: WordBoundaryItem[]; totalAudioDurationMs: number }> {
-  // If text is short (<= 500 chars), process directly in one pass
-  if (text.length <= 500) {
-    const comm = new Communicate(text, {
-      voice: voiceName,
-      rate: rateStr,
-      pitch: pitchStr,
-    });
-
-    const chunks: Buffer[] = [];
-    const wordBoundaries: WordBoundaryItem[] = [];
-
-    for await (const chunk of comm.stream()) {
-      if (chunk.type === "audio" && chunk.data) {
-        chunks.push(Buffer.from(chunk.data));
-      } else if (chunk.type === "WordBoundary") {
-        wordBoundaries.push({
-          offset: (chunk as any).offset || 0,
-          duration: (chunk as any).duration || 0,
-          text: (chunk as any).text || "",
-        });
-      }
-    }
-
-    const combined = Buffer.concat(chunks);
-    if (!combined || combined.length === 0) {
-      throw new Error("Edge TTS returned empty audio buffer");
-    }
-    const totalAudioDurationMs = await getMp3ExactDurationMs(combined);
-    return { audioBuffer: combined, wordBoundaries, totalAudioDurationMs };
+  // If text is short (<= 600 chars), synthesize directly in one pass
+  if (text.length <= 600) {
+    const { pcmBuf, boundaries } = await synthesizeSingleChunkEdge(text, voiceName, rateStr, pitchStr);
+    const audioBuffer = await encodePcmToMp3(pcmBuf);
+    const totalAudioDurationMs = Math.round(pcmBuf.length / 48);
+    return { audioBuffer, wordBoundaries: boundaries, totalAudioDurationMs };
   }
 
-  // For long text (> 500 chars, up to 10,000+ chars), split into natural phrase/sentence chunks
-  const rawChunks = splitTextIntoChunks(text, 380);
-  const audioChunks: Buffer[] = [];
+  // For long text (6,000 up to 30,000+ characters), split into natural Burmese chunks
+  const chunks = splitBurmeseTextIntoChunks(text, 750);
+  const results: Array<{ pcmBuf: Buffer; boundaries: WordBoundaryItem[] }> = new Array(chunks.length);
+
+  // Process chunks in concurrent batches of 4 for fast synthesis without timing drift
+  const BATCH_SIZE = 4;
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batchPromises = chunks.slice(i, i + BATCH_SIZE).map(async (chunkText, idx) => {
+      const globalIdx = i + idx;
+      const res = await synthesizeSingleChunkEdge(chunkText, voiceName, rateStr, pitchStr);
+      results[globalIdx] = res;
+    });
+    await Promise.all(batchPromises);
+  }
+
+  // Stitch decoded PCM audio buffers and calculate exact microsecond timestamp offsets for all subtitles
+  const allPcmBuffers: Buffer[] = [];
   const allBoundaries: WordBoundaryItem[] = [];
-  let totalOffsetTicks = 0;
+  let accumulatedPcmBytes = 0;
 
-  for (const chunkText of rawChunks) {
-    if (!chunkText.trim()) continue;
+  for (let i = 0; i < results.length; i++) {
+    const { pcmBuf, boundaries } = results[i];
+    if (!pcmBuf || pcmBuf.length === 0) continue;
 
-    const comm = new Communicate(chunkText.trim(), {
-      voice: voiceName,
-      rate: rateStr,
-      pitch: pitchStr,
-    });
+    // 24,000 Hz, 16-bit Mono = 48 bytes per millisecond
+    const chunkStartMs = accumulatedPcmBytes / 48;
+    const chunkOffsetTicks = Math.round(chunkStartMs * 10000);
 
-    const chunkBoundaries: WordBoundaryItem[] = [];
-    const chunkAudio: Buffer[] = [];
-
-    for await (const chunk of comm.stream()) {
-      if (chunk.type === "audio" && chunk.data) {
-        chunkAudio.push(Buffer.from(chunk.data));
-      } else if (chunk.type === "WordBoundary") {
-        const offset = ((chunk as any).offset || 0) + totalOffsetTicks;
-        const duration = (chunk as any).duration || 0;
-        const bText = (chunk as any).text || "";
-        chunkBoundaries.push({ offset, duration, text: bText });
-      }
+    for (const b of boundaries) {
+      allBoundaries.push({
+        offset: b.offset + chunkOffsetTicks,
+        duration: b.duration,
+        text: b.text,
+      });
     }
 
-    const chunkBuf = Buffer.concat(chunkAudio);
-    if (chunkBuf.length > 0) {
-      audioChunks.push(chunkBuf);
-      allBoundaries.push(...chunkBoundaries);
-
-      // Measure exact decoded audio length of this chunk to eliminate any timing drift
-      const chunkDurationMs = await getMp3ExactDurationMs(chunkBuf);
-      if (chunkDurationMs > 0) {
-        totalOffsetTicks += chunkDurationMs * 10000;
-      } else if (chunkBoundaries.length > 0) {
-        const lastB = chunkBoundaries[chunkBoundaries.length - 1];
-        totalOffsetTicks = lastB.offset + lastB.duration + 5000000;
-      }
-    }
+    allPcmBuffers.push(pcmBuf);
+    accumulatedPcmBytes += pcmBuf.length;
   }
 
-  const combined = Buffer.concat(audioChunks);
-  if (!combined || combined.length === 0) {
+  const combinedPcm = Buffer.concat(allPcmBuffers);
+  if (!combinedPcm || combinedPcm.length === 0) {
     throw new Error("Edge TTS returned empty audio buffer for chunked synthesis");
   }
 
-  const totalAudioDurationMs = await getMp3ExactDurationMs(combined);
+  // Single-pass MP3 encoding ensures zero frame gaps and 100% seamless playback
+  const audioBuffer = await encodePcmToMp3(combinedPcm);
+  const totalAudioDurationMs = Math.round(combinedPcm.length / 48);
 
-  return { audioBuffer: combined, wordBoundaries: allBoundaries, totalAudioDurationMs };
-}
-
-// Text chunker for fallback speech synthesis
-function splitTextIntoChunks(text: string, maxLength: number = 150): string[] {
-  const cleanText = text.replace(/[\(\)\[\]\{\}\*\#\_]/g, " ").trim();
-  if (cleanText.length <= maxLength) return [cleanText];
-
-  const regex = /([^။၊\n\.\?!]+[။၊\n\.\?!]?)/g;
-  const rawParts = cleanText.match(regex) || [cleanText];
-  const chunks: string[] = [];
-  let current = "";
-
-  for (const part of rawParts) {
-    if ((current + " " + part).trim().length <= maxLength) {
-      current = (current + " " + part).trim();
-    } else {
-      if (current) chunks.push(current);
-      if (part.length <= maxLength) {
-        current = part.trim();
-      } else {
-        const subWords = part.split(/\s+/);
-        let sub = "";
-        for (const w of subWords) {
-          if ((sub + " " + w).trim().length <= maxLength) {
-            sub = (sub + " " + w).trim();
-          } else {
-            if (sub) chunks.push(sub);
-            sub = w;
-          }
-        }
-        if (sub) current = sub;
-      }
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks.length > 0 ? chunks : [cleanText.slice(0, maxLength)];
+  return { audioBuffer, wordBoundaries: allBoundaries, totalAudioDurationMs };
 }
 
 // Fallback Natural Human Speech Engine
 async function fetchGoogleTtsAudio(text: string, lang: string = "my"): Promise<Buffer> {
-  const chunks = splitTextIntoChunks(text, 140);
+  const chunks = splitBurmeseTextIntoChunks(text, 140);
   const buffers: Buffer[] = [];
 
   for (const chunk of chunks) {
@@ -568,7 +673,150 @@ Return only the formatted Burmese script text ready for TTS synthesis.`;
     }
   });
 
-  // API Route: AI Language Translator using Gemini
+  // Helper function: Ensure output is 100% pure Myanmar (Burmese) script with natural spoken number units
+  function ensurePureBurmeseText(text: string): string {
+    if (!text) return "";
+
+    let cleaned = text;
+
+    // 0. Number Unit Formatting to Spoken Myanmar (၅ ထောင်၊ ၁ သောင်း၊ ၅ သောင်း၊ ၁ သိန်း)
+    const numberUnitsMap: [RegExp, string][] = [
+      [/50[,.]?000|၅၀[,.]?၀၀၀/gi, "၅ သောင်း"],
+      [/10[,.]?000|၁၀[,.]?၀၀၀/gi, "၁ သောင်း"],
+      [/20[,.]?000|၂၀[,.]?၀၀၀/gi, "၂ သောင်း"],
+      [/30[,.]?000|၃၀[,.]?၀၀၀/gi, "၃ သောင်း"],
+      [/40[,.]?000|၄၀[,.]?၀၀၀/gi, "၄ သောင်း"],
+      [/100[,.]?000|၁၀၀[,.]?၀၀၀/gi, "၁ သိန်း"],
+      [/5[,.]?000|၅[,.]?၀၀၀/gi, "၅ ထောင်"],
+      [/1[,.]?000|၁[,.]?၀၀၀/gi, "၁ ထောင်"],
+      [/2[,.]?000|၂[,.]?၀၀၀/gi, "၂ ထောင်"],
+      [/3[,.]?000|၃[,.]?၀၀၀/gi, "၃ ထောင်"],
+      [/10[- ]?years/gi, "၁၀ နှစ်"],
+    ];
+
+    for (const [regex, replacement] of numberUnitsMap) {
+      cleaned = cleaned.replace(regex, replacement);
+    }
+
+    // 0.5 Replace Formal Unnatural Words with Spoken Myanmar Equivalents
+    const formalWordsMap: [RegExp, string][] = [
+      [/ဩတ္တပ္ပစိတ်/g, "အသိတရား"],
+      [/သြတ္တပ္ပစိတ်/g, "အသိတရား"],
+      [/၎င်းသည်/g, "ထိုအရာဟာ"],
+      [/၎င်း/g, "ထိုအရာ"],
+      [/သည်။/g, "တယ်။"],
+      [/သည်\b/g, "တယ်"],
+    ];
+
+    for (const [regex, replacement] of formalWordsMap) {
+      cleaned = cleaned.replace(regex, replacement);
+    }
+
+    // 1. Common Titles, Brands, Names & Terms
+    const termsMap: [RegExp, string][] = [
+      [/Rolls[- ]?Royce/gi, "ရိုးစရိုက်စ်"],
+      [/\bMiss\b/gi, "မစ္စ"],
+      [/\bMr\b\.?/gi, "မစ္စတာ"],
+      [/\bMrs\b\.?/gi, "မစ္စစ်"],
+      [/\bDr\b\.?/gi, "ဒေါက်တာ"],
+      [/\bDirector\b/gi, "ဒါရိုက်တာ"],
+      [/\bCEO\b/gi, "စီအီးအို"],
+      [/\bVIP\b/gi, "ဗီအိုင်ပီ"],
+      [/\bJackpot\b/gi, "ဂျက်ပေါ့"],
+      [/\bOK\b/gi, "အိုကေ"],
+      [/\bOk\b/gi, "အိုကေ"],
+      [/\bok\b/gi, "အိုကေ"],
+      [/\bYes\b/gi, "ဟုတ်ကဲ့"],
+      [/\bNo\b/gi, "ဟင့်အင်း"],
+      [/\bHello\b/gi, "ဟယ်လို"],
+      [/\bHi\b/gi, "ဟိုင်း"],
+      // Drama & Script Names
+      [/\bGia\b/gi, "ဂျီအေ"],
+      [/\bWang\b/gi, "ဝမ်"],
+      [/\bWong\b/gi, "ဝေါင်"],
+      [/\bChungyun\b/gi, "ချောင်ယွန်"],
+      [/\bJi[ -]?Wan\b/gi, "ဂျီဝမ်"],
+      [/\bJiwan\b/gi, "ဂျီဝမ်"],
+      [/\bJae\b/gi, "ဂျေး"],
+      [/\bJaye\b/gi, "ဂျေး"],
+      [/\bChan[ -]?Ming\b/gi, "ချန်းမင်း"],
+      [/\bChanming\b/gi, "ချန်းမင်း"],
+      [/\bXiaomu\b/gi, "ရှောင်မု"],
+      [/\bChangmin\b/gi, "ချန်းမင်း"],
+      [/\bJianbo\b/gi, "ဂျန်းဘို"],
+      [/\bJiayi\b/gi, "ဂျီယီ"],
+      [/\bJungwoo\b/gi, "ဂျောင်ဝူး"],
+      [/\bJunguo\b/gi, "ဂျောင်ဂို"],
+      [/\bChongming\b/gi, "ချောင်မင်း"],
+      [/\bJohn\b/gi, "ဂျွန်"],
+      [/\bMary\b/gi, "မေရီ"],
+      [/\bDavid\b/gi, "ဒေးဗစ်"],
+      [/\bTom\b/gi, "တွမ်"],
+      [/\bJack\b/gi, "ဂျက်"],
+      [/\bAlex\b/gi, "အဲလက်စ်"],
+      [/\bYan\b/gi, "ယန်း"],
+    ];
+
+    for (const [regex, replacement] of termsMap) {
+      cleaned = cleaned.replace(regex, replacement);
+    }
+
+    // 2. Transliterate any remaining English words/letters character-by-character into Burmese
+    const letterMap: Record<string, string> = {
+      a: "အေ", b: "ဘီ", c: "စီ", d: "ဒီ", e: "အီး", f: "အက်ဖ်", g: "ဂျီ",
+      h: "အိတ်ချ်", i: "အိုင်", j: "ဂျေ", k: "ကေ", l: "အယ်လ်", m: "အမ်",
+      n: "အန်", o: "အို", p: "ပီ", q: "ကျူ", r: "အာ", s: "အက်စ်", t: "တီ",
+      u: "ယူ", v: "ဗီ", w: "ဒဗလျူ", x: "အက်က်စ်", y: "ဝိုင်", z: "ဇက်",
+    };
+
+    cleaned = cleaned.replace(/[A-Za-z]+/g, (match) => {
+      return match
+        .toLowerCase()
+        .split("")
+        .map((char) => letterMap[char] || char)
+        .join("");
+    });
+
+    return cleaned;
+  }
+
+  // Helper function: Fallback Neural Translation Engine via Google API
+  async function translateWithGoogleApi(text: string): Promise<string> {
+    try {
+      const lines = text.split("\n");
+      const translatedLines: string[] = [];
+
+      for (const line of lines) {
+        if (!line.trim()) {
+          translatedLines.push("");
+          continue;
+        }
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=my&dt=t&q=${encodeURIComponent(line.trim())}`;
+          const response = await fetch(url);
+          if (response.ok) {
+            const data = await response.json();
+            if (Array.isArray(data) && Array.isArray(data[0])) {
+              const fullLine = data[0].map((chunk: any) => chunk[0] || "").join("");
+              translatedLines.push(fullLine || line);
+            } else {
+              translatedLines.push(line);
+            }
+          } else {
+            translatedLines.push(line);
+          }
+        } catch {
+          translatedLines.push(line);
+        }
+      }
+
+      return translatedLines.join("\n").trim();
+    } catch {
+      return text;
+    }
+  }
+
+  // API Route: AI Language Translator using Gemini with Multi-Stage Fallback
   app.post("/api/gemini/translate", async (req, res) => {
     try {
       const apiKey = process.env.GEMINI_API_KEY;
@@ -577,29 +825,91 @@ Return only the formatted Burmese script text ready for TTS synthesis.`;
         return res.status(400).json({ error: "Text is required for translation" });
       }
 
-      if (!apiKey) {
-        return res.status(500).json({ error: "Gemini API Key is not configured." });
+      const systemInstruction = `You are a master Myanmar (Burmese) translator and voiceover script editor specializing in drama recaps, Chinese/English scripts, and movie narration.
+
+CRITICAL TRANSLATION & SPOKEN VOICEOVER RULES:
+1. USE NATURAL SPOKEN MYANMAR VOICE (စကားပြောစတိုင်လ်): Translate 100% into natural, fluent, spoken Myanmar drama recap narration.
+   - ABSOLUTELY DO NOT USE FORMAL LITERARY WORDS like "သည်", "၎င်း", "ဩတ္တပ္ပစိတ်".
+   - Replace "သည်" with "တယ်" for sentence endings/verbs (e.g., "ပြောင်းလဲသွားတယ်", "သက်သာသွားတယ်", "ဖြစ်လာတယ်").
+   - Replace "၎င်းသည်" with "ထိုအရာဟာ", replace "၎င်း" with "ထိုအရာ" or "အဲဒါ".
+   - Replace "ဩတ္တပ္ပစိတ်" with "အသိတရား".
+2. PRONOUN RULES FOR DIALOGUE:
+   - For female speakers (မိန်းကလေး), ALWAYS use "ကျွန်မ" or "သမီး" when speaking as 'I/me'. NEVER use 'ကျွန်တော်'.
+   - For male speakers (ယောက်ျားလေး), ALWAYS use "ကျွန်တော်" or "သား" when speaking as 'I/me'.
+3. ABSOLUTELY NO ENGLISH OR LATIN CHARACTERS ALLOWED IN THE OUTPUT. Every English word, name, title, place, or brand name MUST be phonetically transliterated into natural Burmese text (e.g. "Gia" -> "ဂျီအေ", "Wang" -> "ဝမ်", "Rolls Royce" -> "ရိုးစရိုက်စ်", "Miss" -> "မစ္စ", "Jackpot" -> "ဂျက်ပေါ့").
+4. CONVERT NUMBERS TO NATURAL MYANMAR SPOKEN UNITS (ထောင်၊ သောင်း၊ သိန်း၊ သန်း):
+   - Convert 5,000 / 5000 / ၅၀၀၀ -> ၅ ထောင်
+   - Convert 10,000 / 10000 / ၁၀၀၀၀ -> ၁ သောင်း
+   - Convert 50,000 / 50000 / ၅၀၀၀၀ -> ၅ သောင်း
+   - Convert 100,000 / 100000 / ၁၀၀၀၀၀ -> ၁ သိန်း
+   - Convert 1,000,000 / 1000000 -> ၁ သန်း
+5. Preserve dialogue lines (-), line breaks, punctuation, and natural spoken Myanmar voiceover flow.
+6. Output ONLY the pure Burmese translated text. Do not include markdown headers, code blocks, or explanations.`;
+
+      let translatedText = "";
+
+      // Stage 1: Primary Gemini Model (gemini-3.8-flash)
+      if (apiKey) {
+        try {
+          const ai = new GoogleGenAI({ apiKey });
+          const response = await ai.models.generateContent({
+            model: "gemini-3.8-flash",
+            contents: text,
+            config: {
+              systemInstruction,
+              temperature: 0.25,
+            },
+          });
+
+          if (response.text && response.text.trim()) {
+            translatedText = response.text.trim();
+          }
+        } catch (e1: any) {
+          console.warn("Stage 1 Gemini 3.8 Flash translation error:", e1?.message || e1);
+
+          // Stage 2: Secondary Gemini Model Alias (gemini-flash-latest)
+          try {
+            const ai = new GoogleGenAI({ apiKey });
+            const response2 = await ai.models.generateContent({
+              model: "gemini-flash-latest",
+              contents: text,
+              config: {
+                systemInstruction,
+                temperature: 0.25,
+              },
+            });
+
+            if (response2.text && response2.text.trim()) {
+              translatedText = response2.text.trim();
+            }
+          } catch (e2: any) {
+            console.warn("Stage 2 Gemini Flash Latest translation error:", e2?.message || e2);
+          }
+        }
       }
 
-      const ai = new GoogleGenAI({ apiKey });
-      const systemInstruction = `You are a professional real-time translator specializing in Burmese, English, Chinese, Thai, Korean, Japanese, French, and Spanish.
-Translate the user's provided text from ${sourceLang || "Auto Detect"} to ${targetLang || "Burmese"}.
-Provide natural, grammatically correct, and fluent translation without any explanations, notes, or conversational intro/outro text.
-Return ONLY the raw translated text.`;
+      // Stage 3: Bulletproof Fallback via Google Translation Engine
+      if (!translatedText || !translatedText.trim()) {
+        console.log("Using Stage 3 Neural Translation Engine Fallback...");
+        translatedText = await translateWithGoogleApi(text);
+      }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: text,
-        config: {
-          systemInstruction,
-          temperature: 0.2,
-        },
+      if (translatedText) {
+        translatedText = ensurePureBurmeseText(translatedText);
+      }
+
+      res.json({ 
+        translatedText: translatedText || text,
+        success: true 
       });
-
-      res.json({ translatedText: response.text ? response.text.trim() : "" });
     } catch (error: any) {
-      console.error("Gemini translation error:", error?.message || error);
-      res.status(500).json({ error: error.message || "Failed to translate text" });
+      console.error("Gemini translation outer error:", error?.message || error);
+      // Even in outer error, return fallback translated text instead of failing
+      let fallback = await translateWithGoogleApi(req.body.text || "");
+      if (fallback) {
+        fallback = ensurePureBurmeseText(fallback);
+      }
+      res.json({ translatedText: fallback, success: true });
     }
   });
 
@@ -720,6 +1030,417 @@ Return ONLY the raw translated text.`;
     }
 
     return res.status(500).json({ error: "Failed to generate MP3 speech" });
+  });
+
+  // API: Get all upgrade requests
+  app.get("/api/upgrade-requests", (req, res) => {
+    const list = loadJsonSafe<any[]>(UPGRADE_REQS_FILE, []);
+    res.json(list);
+  });
+
+  // API: Submit new upgrade request with payment slip
+  app.post("/api/upgrade-requests", (req, res) => {
+    try {
+      const { userId, userEmail, userName, plan, paymentSlipBase64 } = req.body;
+      if (!userEmail) {
+        return res.status(400).json({ error: "userEmail is required" });
+      }
+
+      const list = loadJsonSafe<any[]>(UPGRADE_REQS_FILE, []);
+      const newReq = {
+        id: "req_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+        userId: userId || ("u_" + Date.now()),
+        userEmail: userEmail,
+        userName: userName || userEmail.split("@")[0],
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        plan: plan || "Premium Member (30,000 Chars)",
+        paymentSlipBase64: paymentSlipBase64 || "",
+      };
+
+      list.unshift(newReq);
+      saveJsonSafe(UPGRADE_REQS_FILE, list);
+
+      // Ensure user exists in users list
+      const users = loadJsonSafe<any[]>(USERS_FILE, []);
+      const existingUserIdx = users.findIndex(u => u.uid === newReq.userId || u.email?.toLowerCase() === newReq.userEmail.toLowerCase());
+      if (existingUserIdx === -1) {
+        users.push({
+          uid: newReq.userId,
+          email: newReq.userEmail,
+          displayName: newReq.userName,
+          role: "normal",
+          createdAt: newReq.createdAt,
+          lastLoginAt: newReq.createdAt,
+          generationCount: 0,
+          dailyGenerations: 0,
+        });
+        saveJsonSafe(USERS_FILE, users);
+      }
+
+      res.json({ success: true, request: newReq });
+    } catch (e: any) {
+      console.error("Failed to save upgrade request:", e);
+      res.status(500).json({ error: e.message || "Failed to save upgrade request" });
+    }
+  });
+
+  // API: Approve upgrade request (updates role to premium for 1 Month)
+  app.post("/api/upgrade-requests/approve", (req, res) => {
+    try {
+      const { requestId, userId, userEmail } = req.body;
+      const cleanEmail = String(userEmail || "").trim().toLowerCase();
+      const oneMonthFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      const list = loadJsonSafe<any[]>(UPGRADE_REQS_FILE, []);
+      const reqItem = list.find(r => r.id === requestId || (userId && r.userId === userId) || (cleanEmail && r.userEmail?.toLowerCase() === cleanEmail));
+      if (reqItem) {
+        reqItem.status = "approved";
+        saveJsonSafe(UPGRADE_REQS_FILE, list);
+      }
+
+      // Update all matching user records to premium (1 Month)
+      const users = loadJsonSafe<any[]>(USERS_FILE, []);
+      let updatedCount = 0;
+      users.forEach(u => {
+        if ((userId && u.uid === userId) || (cleanEmail && u.email?.toLowerCase() === cleanEmail) || (reqItem && u.email?.toLowerCase() === reqItem.userEmail?.toLowerCase())) {
+          u.role = "premium";
+          u.premiumExpiresAt = oneMonthFromNow;
+          delete u.forceLogout;
+          updatedCount++;
+        }
+      });
+
+      if (updatedCount === 0 && cleanEmail) {
+        users.push({
+          uid: userId || ("u_" + Date.now()),
+          email: cleanEmail,
+          displayName: (reqItem && reqItem.userName) || cleanEmail.split("@")[0],
+          role: "premium",
+          premiumExpiresAt: oneMonthFromNow,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          generationCount: 0,
+          dailyGenerations: 0,
+        });
+      }
+
+      saveJsonSafe(USERS_FILE, users);
+      res.json({ success: true, updatedRole: "premium", premiumExpiresAt: oneMonthFromNow });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // API: Reject upgrade request
+  app.post("/api/upgrade-requests/reject", (req, res) => {
+    try {
+      const { requestId } = req.body;
+      const list = loadJsonSafe<any[]>(UPGRADE_REQS_FILE, []);
+      const reqItem = list.find(r => r.id === requestId);
+      if (reqItem) {
+        reqItem.status = "rejected";
+        saveJsonSafe(UPGRADE_REQS_FILE, list);
+      }
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // API: Get all users with automatic Email-Based Deduplication & 1 Month Expiration validation
+  app.get("/api/users", (req, res) => {
+    const rawUsers = loadJsonSafe<any[]>(USERS_FILE, []);
+    const deduplicatedMap = new Map<string, any>();
+    const now = Date.now();
+
+    for (const u of rawUsers) {
+      if (!u) continue;
+      const emailKey = String(u.email || u.uid || "").trim().toLowerCase();
+      if (!emailKey) continue;
+
+      // Validate 1 Month Premium expiration
+      if (u.role === "premium" && u.premiumExpiresAt) {
+        if (new Date(u.premiumExpiresAt).getTime() < now) {
+          u.role = "normal";
+        }
+      }
+
+      const existing = deduplicatedMap.get(emailKey);
+      if (!existing) {
+        deduplicatedMap.set(emailKey, { ...u });
+      } else {
+        // Merge records: highest role priority
+        let bestRole = existing.role;
+        if (u.role === "admin" || emailKey === "nwe98698@gmail.com") bestRole = "admin";
+        else if (u.role === "premium" && bestRole !== "admin") bestRole = "premium";
+
+        const bestName = (existing.displayName && !existing.displayName.includes("@"))
+          ? existing.displayName
+          : (u.displayName || existing.displayName || emailKey.split("@")[0]);
+
+        const bestPhoto = existing.photoURL || u.photoURL || "";
+        const maxGen = Math.max(existing.generationCount || 0, u.generationCount || 0);
+        const bestExpiresAt = u.premiumExpiresAt || existing.premiumExpiresAt;
+
+        deduplicatedMap.set(emailKey, {
+          ...existing,
+          ...u,
+          displayName: bestName,
+          photoURL: bestPhoto,
+          role: bestRole,
+          generationCount: maxGen,
+          premiumExpiresAt: bestExpiresAt
+        });
+      }
+    }
+
+    const cleanUsers = Array.from(deduplicatedMap.values());
+    res.json(cleanUsers);
+  });
+
+  // API: Sync user
+  app.post("/api/users/sync", (req, res) => {
+    try {
+      const profile = req.body;
+      if (!profile || !profile.email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+
+      const cleanEmail = profile.email.trim().toLowerCase();
+      const users = loadJsonSafe<any[]>(USERS_FILE, []);
+      const idx = users.findIndex(u => u.uid === profile.uid || u.email?.toLowerCase() === cleanEmail);
+      
+      if (idx !== -1) {
+        // Preserve existing premium if still valid within 1 Month
+        const existing = users[idx];
+        let roleToKeep = profile.role || existing.role || "normal";
+        let expiresAtToKeep = profile.premiumExpiresAt || existing.premiumExpiresAt;
+
+        if (cleanEmail === "nwe98698@gmail.com") {
+          roleToKeep = "admin";
+        } else if (existing.role === "premium") {
+          if (existing.premiumExpiresAt && new Date(existing.premiumExpiresAt).getTime() > Date.now()) {
+            roleToKeep = "premium";
+            expiresAtToKeep = existing.premiumExpiresAt;
+          }
+        }
+
+        users[idx] = { 
+          ...existing, 
+          ...profile, 
+          email: cleanEmail,
+          role: roleToKeep,
+          premiumExpiresAt: expiresAtToKeep 
+        };
+      } else {
+        users.push({ ...profile, email: cleanEmail });
+      }
+      saveJsonSafe(USERS_FILE, users);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // API: Get current user role and profile by email or UID with 1 Month validity check
+  app.get("/api/users/me", (req, res) => {
+    try {
+      const email = String(req.query.email || "").trim().toLowerCase();
+      const uid = String(req.query.uid || "").trim();
+
+      if (!email && !uid) {
+        return res.status(400).json({ error: "email or uid is required" });
+      }
+
+      const users = loadJsonSafe<any[]>(USERS_FILE, []);
+      let target = users.find(
+        (u) =>
+          (email && u.email?.toLowerCase() === email) ||
+          (uid && u.uid === uid)
+      );
+
+      // Guarantee admin role for bootstrap admin nwe98698@gmail.com
+      if (email === "nwe98698@gmail.com" || (target && target.email?.toLowerCase() === "nwe98698@gmail.com")) {
+        if (target) {
+          target.role = "admin";
+          saveJsonSafe(USERS_FILE, users);
+        } else {
+          target = {
+            uid: uid || "admin_nwe98698",
+            email: "nwe98698@gmail.com",
+            displayName: "Admin Lin Zaw",
+            role: "admin",
+            createdAt: new Date().toISOString(),
+            lastLoginAt: new Date().toISOString(),
+            generationCount: 0,
+            dailyGenerations: 0,
+          };
+          users.push(target);
+          saveJsonSafe(USERS_FILE, users);
+        }
+      }
+
+      // Check 1 Month Premium expiration
+      if (target && target.role === "premium") {
+        if (target.premiumExpiresAt) {
+          if (new Date(target.premiumExpiresAt).getTime() < Date.now()) {
+            target.role = "normal";
+            delete target.premiumExpiresAt;
+            saveJsonSafe(USERS_FILE, users);
+          }
+        }
+      }
+
+      // Check if an approved upgrade request exists for this user email
+      if (email) {
+        const reqs = loadJsonSafe<any[]>(UPGRADE_REQS_FILE, []);
+        const approvedReq = reqs.find(
+          (r) =>
+            r.userEmail?.toLowerCase() === email && r.status === "approved"
+        );
+        if (approvedReq) {
+          const defaultExpiresAt = approvedReq.createdAt
+            ? new Date(new Date(approvedReq.createdAt).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+            : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+          if (new Date(defaultExpiresAt).getTime() > Date.now()) {
+            if (target) {
+              target.role = "premium";
+              target.premiumExpiresAt = target.premiumExpiresAt || defaultExpiresAt;
+              saveJsonSafe(USERS_FILE, users);
+            } else {
+              target = {
+                uid: uid || approvedReq.userId || ("u_" + Date.now()),
+                email: email,
+                displayName: approvedReq.userName || email.split("@")[0],
+                role: "premium",
+                premiumExpiresAt: defaultExpiresAt,
+                createdAt: approvedReq.createdAt || new Date().toISOString(),
+                lastLoginAt: new Date().toISOString(),
+                generationCount: 0,
+                dailyGenerations: 0,
+              };
+              users.push(target);
+              saveJsonSafe(USERS_FILE, users);
+            }
+          }
+        }
+      }
+
+      if (target) {
+        // If forceLogout was triggered, return it and reset
+        if (target.forceLogout) {
+          const responsePayload = { ...target, forceLogout: true };
+          target.forceLogout = false;
+          saveJsonSafe(USERS_FILE, users);
+          return res.json(responsePayload);
+        }
+        return res.json(target);
+      }
+
+      return res.status(404).json({ error: "User not found" });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // API: Update user role with 1 Month (30 Days) Premium duration
+  app.post("/api/users/role", (req, res) => {
+    try {
+      const { userId, userEmail, newRole, premiumExpiresAt } = req.body;
+      const cleanEmail = String(userEmail || "").trim().toLowerCase();
+      const users = loadJsonSafe<any[]>(USERS_FILE, []);
+      const oneMonthFromNow = premiumExpiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      let updated = false;
+      users.forEach(u => {
+        if ((userId && u.uid === userId) || (cleanEmail && u.email?.toLowerCase() === cleanEmail)) {
+          u.role = newRole;
+          if (newRole === "premium") {
+            u.premiumExpiresAt = oneMonthFromNow;
+          } else {
+            delete u.premiumExpiresAt;
+          }
+          delete u.forceLogout;
+          updated = true;
+        }
+      });
+
+      if (!updated && cleanEmail) {
+        users.push({
+          uid: userId || ("u_" + Date.now()),
+          email: cleanEmail,
+          displayName: cleanEmail.split("@")[0],
+          role: newRole,
+          ...(newRole === "premium" ? { premiumExpiresAt: oneMonthFromNow } : {}),
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          generationCount: 0,
+          dailyGenerations: 0,
+        });
+      }
+
+      saveJsonSafe(USERS_FILE, users);
+      res.json({ success: true, newRole, premiumExpiresAt: newRole === "premium" ? oneMonthFromNow : null });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // API: Force Logout / Revoke User Session (Admin function)
+  app.post("/api/users/revoke-session", (req, res) => {
+    try {
+      const { userId, userEmail, deleteUser } = req.body;
+      const cleanEmail = String(userEmail || "").trim().toLowerCase();
+      let users = loadJsonSafe<any[]>(USERS_FILE, []);
+
+      if (deleteUser) {
+        users = users.filter(u => !(
+          (userId && u.uid === userId) || 
+          (cleanEmail && u.email?.toLowerCase() === cleanEmail)
+        ));
+      } else {
+        users.forEach(u => {
+          if ((userId && u.uid === userId) || (cleanEmail && u.email?.toLowerCase() === cleanEmail)) {
+            u.forceLogout = true;
+            u.role = "normal";
+            delete u.premiumExpiresAt;
+          }
+        });
+      }
+
+      saveJsonSafe(USERS_FILE, users);
+      res.json({ success: true, message: deleteUser ? "User completely deleted from database" : "User session revoked" });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // API: Delete User and associated requests (Admin function)
+  app.post("/api/users/delete", (req, res) => {
+    try {
+      const { userId, userEmail } = req.body;
+      const cleanEmail = String(userEmail || "").trim().toLowerCase();
+      
+      let users = loadJsonSafe<any[]>(USERS_FILE, []);
+      users = users.filter(u => !(
+        (userId && u.uid === userId) || 
+        (cleanEmail && u.email?.toLowerCase() === cleanEmail)
+      ));
+      saveJsonSafe(USERS_FILE, users);
+
+      let reqs = loadJsonSafe<any[]>(UPGRADE_REQS_FILE, []);
+      reqs = reqs.filter(r => !(
+        (userId && r.userId === userId) || 
+        (cleanEmail && r.userEmail?.toLowerCase() === cleanEmail)
+      ));
+      saveJsonSafe(UPGRADE_REQS_FILE, reqs);
+
+      res.json({ success: true, message: "User and requests deleted permanently" });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // Setup Vite middleware for development
